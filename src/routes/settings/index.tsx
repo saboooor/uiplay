@@ -1,7 +1,7 @@
-import { component$, useContext } from '@builder.io/qwik';
-import type { DocumentHead } from '@builder.io/qwik-city';
+import { component$, useContext } from '@qwik.dev/core';
+import type { DocumentHead } from '@qwik.dev/router';
 import { UiPlayStoreContext } from '../layout';
-import { Save } from 'lucide-icons-qwik';
+import Save from 'lucide-icons-qwik/icons/Save';
 
 export default component$(() => {
   const UiPlayStore = useContext(UiPlayStoreContext);

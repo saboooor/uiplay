@@ -1,48 +1,55 @@
-import { component$, useContext } from '@builder.io/qwik';
-import { Link } from '@builder.io/qwik-city';
+import { component$, useContext } from '@qwik.dev/core';
+import { Link } from '@qwik.dev/router';
 import { Window } from '@tauri-apps/api/window';
 import { Airplay, Minus, Settings, Square, Terminal, X } from 'lucide-icons-qwik';
 import { UiPlayStoreContext } from '~/routes/layout';
+import { Nav } from '@luminescent/ui-qwik';
 
 export default component$(() => {
   const UiPlayStore = useContext(UiPlayStoreContext);
 
   return (
-    <div data-tauri-drag-region
-      class="flex justify-between fixed top-0 w-full z-20 p-2 border-b border-b-gray-900 rounded-lum rounded-b-none">
-      <div>
-        <Link href="/" class="lum-btn lum-bg-transparent fill-[#f0ccfb] font-semibold text-[#f0ccfb]! rounded-lum-2 rounded-b-md rounded-r-md hover:lum-bg-luminescent-500">
-          <span class="flex items-center gap-2" style="filter: drop-shadow(0 0 1rem #CB6CE6);">
-            <Airplay size={20} strokeWidth={3} />
-            UiPlay
-          </span>
-        </Link>
-      </div>
-      <div class="flex items-center gap-1">
-        <Link href="/settings" class="lum-btn lum-bg-transparent p-2 rounded-md">
-          <Settings size={20} />
-        </Link>
-        <button class="lum-btn lum-bg-transparent p-2 rounded-md" onClick$={() => {
-          UiPlayStore.TerminalOpen = !UiPlayStore.TerminalOpen;
-        }}>
-          <Terminal size={20} />
-        </button>
-        <button class="lum-btn lum-bg-transparent p-2 rounded-md hover:lum-bg-amber-500" onClick$={() => {
-          Window.getCurrent().minimize();
-        }}>
-          <Minus size={20} />
-        </button>
-        <button class="lum-btn lum-bg-transparent p-2 rounded-md hover:lum-bg-green-500" onClick$={() => {
-          Window.getCurrent().toggleMaximize();
-        }}>
-          <Square size={20} />
-        </button>
-        <button class="lum-btn lum-bg-transparent p-2 rounded-lum-2 rounded-b-md rounded-l-md hover:lum-bg-red-500" onClick$={() => {
-          Window.getCurrent().close();
-        }}>
-          <X size={20} />
-        </button>
-      </div>
-    </div>
+    <Nav fixed data-tauri-drag-region
+      innerProps={{
+        'data-tauri-drag-region': true,
+        style: {
+          '--lum-depth': '1',
+        },
+      } as any}
+      colorClass="lum-grad-bg-gray-800/20" style={{
+        '--lum-border-radius': '1rem',
+      }}
+      nohamburger>
+
+      <Link q:slot="start" href="/" class="lum-btn lum-bg-transparent font-semibold text-sm rounded-lum-2">
+        <Airplay size={16} strokeWidth={3} />
+          UiPlay
+      </Link>
+
+      <Link q:slot="end" href="/settings" class="lum-btn lum-bg-transparent p-2 rounded-lum-2">
+        <Settings size={16} />
+      </Link>
+      <button q:slot="end" class="lum-btn lum-bg-transparent p-2 rounded-lum-2" onClick$={() => {
+        UiPlayStore.TerminalOpen = !UiPlayStore.TerminalOpen;
+      }}>
+        <Terminal size={16} />
+      </button>
+
+      <button q:slot="end" class="lum-btn lum-bg-transparent p-2 rounded-lum-2" onClick$={() => {
+        Window.getCurrent().minimize();
+      }}>
+        <Minus size={16} />
+      </button>
+      <button q:slot="end" class="lum-btn lum-bg-transparent p-2 rounded-lum-2" onClick$={() => {
+        Window.getCurrent().toggleMaximize();
+      }}>
+        <Square size={16} />
+      </button>
+      <button q:slot="end" class="lum-btn lum-bg-transparent p-2 rounded-lum-2 hover:lum-bg-red" onClick$={() => {
+        Window.getCurrent().close();
+      }}>
+        <X size={16} />
+      </button>
+    </Nav>
   );
 });

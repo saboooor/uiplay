@@ -6,25 +6,27 @@
 
 @import "@luminescent/ui";
 
-@config "@luminescent/ui-qwik/config";
 @source "../node_modules/@luminescent/ui-qwik";
 
 @theme {
-  --color-gray-50: oklch(98.5% 0.002 278.839);
-  --color-gray-100: oklch(96.7% 0.003 295.542);
-  --color-gray-200: oklch(92.8% 0.006 295.531);
-  --color-gray-300: oklch(87.2% 0.01 289.338);
-  --color-gray-400: oklch(70.7% 0.022 292.325);
-  --color-gray-500: oklch(55.1% 0.027 295.364);
-  --color-gray-600: oklch(44.6% 0.03 287.802);
-  --color-gray-700: oklch(37.3% 0.034 290.733);
-  --color-gray-800: oklch(27.8% 0.033 287.848);
-  --color-gray-850: oklch(23.2% 0.03 290.733);
-  --color-gray-900: oklch(21% 0.034 295.665);
-  --color-gray-950: oklch(13% 0.028 292.692);
-
-  --lum-default-alpha: 40;
   --lum-border-radius: var(--radius-3xl);
+  --color-lum-border: #dfdfdfaa;
+  --color-nav-bg: --alpha(var(--color-sky-950) / 40%);
+  --color-bg: var(--color-gray-950);
+  --font-display: "Figtree", "sans-serif";
+
+  --color-gray-50: var(--color-neutral-50);
+  --color-gray-100: var(--color-neutral-100);
+  --color-gray-200: var(--color-neutral-200);
+  --color-gray-300: var(--color-neutral-300);
+  --color-gray-400: var(--color-neutral-400);
+  --color-gray-500: var(--color-neutral-500);
+  --color-gray-600: var(--color-neutral-600);
+  --color-gray-700: var(--color-neutral-700);
+  --color-gray-800: var(--color-neutral-800);
+  --color-gray-850: var(--color-neutral-850);
+  --color-gray-900: var(--color-neutral-900);
+  --color-gray-950: var(--color-neutral-950);
   --color-green: var(--color-green-900);
   --color-red: var(--color-red-900);
   --color-orange: var(--color-orange-900);
@@ -36,15 +38,31 @@
   --color-cyan: var(--color-cyan-900);
   --color-lime: var(--color-lime-900);
   --color-teal: var(--color-teal-900);
-  --color-lum-border: #dfdfdfaa;
-  --color-nav-bg: --alpha(var(--color-sky-950) / 40%);
-  --color-bg: var(--color-gray-950);
+  --color-lum-accent: var(--color-luminescent-500);
 
-  --color-lum-accent: var(--color-luminescent-400);
-
+  --lum-border-superellipse: 2;
   --lum-depth: 1;
 }
 
+@supports (corner-shape: squircle) {
+  :root {
+    --lum-border-radius: 4rem;
+  }
+}
+
+@keyframes spin-cc {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@layer utilities {
+  .animate-spin-cc {
+    animation: spin-cc 40000ms linear infinite;
+  }
+}
 @media (prefers-color-scheme: light) {
   :root {
     --color-bg: var(--color-gray-200);
@@ -64,11 +82,11 @@
     --color-lum-card-bg: var(--color-gray-50);
     --color-lum-input-bg: var(--color-gray-100);
     --color-lum-input-hover-bg: var(--color-gray-200);
-    --color-lum-accent: var(--color-blue-500);
     --color-lum-text: var(--color-gray-900);
     --color-lum-text-secondary: var(--color-gray-600);
   }
 }
+
 a.lum-btn, a.lum-card {
   color: var(--color-text) !important;
   text-decoration: none;
@@ -76,7 +94,12 @@ a.lum-btn, a.lum-card {
 
 html {
   font-family: Figtree, sans-serif;
-  @apply lum-bg-bg/100 rounded-lum border-none
+  overflow: overlay;
+  background: linear-gradient(
+    var(--color-gray-950) 25%,
+    var(--color-gray-950) 100%
+  );
+  background-color: var(--color-gray-950);
 }
 
 * {

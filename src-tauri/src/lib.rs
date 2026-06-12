@@ -112,13 +112,15 @@ async fn start_uxplay(app: tauri::AppHandle) {
   // Initialize Discord Rich Presence
   let mut client: DiscordIpcClient = DiscordIpcClient::new(
     "1397877327622311997"
-  ).expect("Failed to create DiscordIpcClient");
+  );
   if let Err(e) = client.connect() {
     log_output(app.clone(), format!("Failed to connect to Discord IPC: {:?}", e));
   } else {
+    // Create a new activity with the "Listening" type
     let activity: activity::Activity<'_> = activity::Activity::new()
       .activity_type(activity::ActivityType::Listening);
 
+    // Store the client and activity in the shared state
     *DISCORD_STATE.lock().unwrap() = Some(DiscordState {
       client,
       activity,
@@ -237,13 +239,13 @@ async fn process_uxplay_output(
 
       if let Some(caps) = TITLE_REGEX.captures(&output) {
         let title = caps.get(1).map_or("", |m| m.as_str()).to_string();
-        state.activity = state.activity.clone().details(Box::leak(title.into_boxed_str()));
+        state.activity = state.activity.clone().details(title);
         changed = true;
       }
 
       if let Some(caps) = ARTIST_REGEX.captures(&output) {
         let artist = caps.get(1).map_or("", |m| m.as_str()).to_string();
-        state.activity = state.activity.clone().state(Box::leak(artist.into_boxed_str()));
+        state.activity = state.activity.clone().state(artist);
         changed = true;
       }
 
@@ -252,7 +254,7 @@ async fn process_uxplay_output(
         state.activity = state.activity.clone().assets(
           activity::Assets::new()
             .large_image("albumart")  // replace with album-art-specific URL if needed
-            .large_text(Box::leak(album.into_boxed_str()))
+            .large_text(album)
             .small_image("icon")
             .small_text("UiPlay"),
         );
