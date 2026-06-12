@@ -18,20 +18,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - run: corepack enable
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 21
-          cache: pnpm
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
       - name: install frontend dependencies
-        run: pnpm install
+        run: bun install
 
       - uses: tauri-apps/tauri-action@v0
         env:
