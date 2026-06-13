@@ -1,8 +1,10 @@
 import { readFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { Event } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import type { UiPlayStoreType } from './types';
 
 let DeviceID = '';
+let lastArt: Uint8Array | null = null;
 
 export const listenToUxPlayOutput = async (event: Event<string>, UiPlayStore: UiPlayStoreType) => {
   const acceptedRegex = /Accepted (.*) client on socket (.*)/;
@@ -78,14 +80,37 @@ export const listenToUxPlayOutput = async (event: Event<string>, UiPlayStore: Ui
 
     if (!UiPlayStore.NowPlaying) UiPlayStore.NowPlaying = {};
     UiPlayStore.NowPlaying.Album = Album;
+  }
 
+  const albumArtRegex = /coverart size (.*)/;
+  const albumArtRegexMatch = event.payload.match(albumArtRegex);
+  if (albumArtRegexMatch) {
     try {
       const albumArt = await readFile('uiplay/albumart.png', {
         baseDir: BaseDirectory.Config,
       });
-      const base64AlbumArt = btoa(String.fromCharCode(...albumArt));
-      console.log('Album art read successfully:', base64AlbumArt);
-      if (UiPlayStore.NowPlaying) UiPlayStore.NowPlaying.AlbumArt = `data:image/png;base64,${base64AlbumArt}`;
+
+      // Deduplicate: Only upload if the art is different from the last one we processed
+      const isNewArt = !lastArt ||
+        lastArt.length !== albumArt.length ||
+        albumArt.some((byte, i) => byte !== lastArt![i]);
+
+      if (!isNewArt) return;
+      lastArt = albumArt;
+
+      try {
+        // Call the Rust command to handle the network request securely
+        const cdnUrl = await invoke<string>('upload_to_cdn', { deviceId: DeviceID });
+
+        // Append a timestamp to the URL to force Discord to bypass its cache if the ID remains the same
+        const freshUrl = `${cdnUrl}?t=${Date.now()}`;
+        if (UiPlayStore.NowPlaying) UiPlayStore.NowPlaying.AlbumArt = freshUrl;
+        console.log('Uploaded to CDN:', freshUrl);
+      } catch (uploadError) {
+        console.error('Failed to upload to CDN, falling back to local base64:', uploadError);
+        const base64AlbumArt = btoa(String.fromCharCode(...albumArt));
+        if (UiPlayStore.NowPlaying) UiPlayStore.NowPlaying.AlbumArt = `data:image/png;base64,${base64AlbumArt}`;
+      }
     }
     catch (error) {
       console.error('Failed to read album art:', error);

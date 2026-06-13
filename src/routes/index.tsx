@@ -68,8 +68,8 @@ export default component$(() => {
               }
             </p>
             {UiPlayStore.NowPlaying.Progress && UiPlayStore.NowPlaying.Remaining && UiPlayStore.NowPlaying.Length &&
-              <div class="w-full h-4 lum-bg-gray-700/10 rounded-full mt-6">
-                <div class="transition-all duration-1000 ease-linear h-full lum-bg-gray-200/50 rounded-full border-none" style={{
+              <div class="w-full h-2 lum-bg-gray-700/20 rounded-full mt-6 overflow-hidden">
+                <div class="transition-all duration-1000 ease-linear h-full bg-gray-200/20 border-none" style={{
                   width: `${
                     (UiPlayStore.NowPlaying.Progress.min * 60 + UiPlayStore.NowPlaying.Progress.sec)
                     /

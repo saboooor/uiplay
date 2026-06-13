@@ -1,5 +1,6 @@
 mod discord;
 mod uxplay;
+mod cdn;
 
 use std::fs::create_dir_all;
 
@@ -56,7 +57,7 @@ pub fn run() {
       Ok(())
     })
     .invoke_handler(
-      tauri::generate_handler![uxplay::start_uxplay]
+      tauri::generate_handler![uxplay::start_uxplay, cdn::upload_to_cdn]
     )
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
