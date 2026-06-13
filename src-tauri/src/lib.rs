@@ -12,6 +12,11 @@ use tauri_plugin_fs::FsExt;
 pub fn run() {
     // Load environment variables from src-tauri/.env
     dotenvy::dotenv().ok();
+    // Load environment variables and print status for debugging
+    match dotenvy::dotenv() {
+        Ok(path) => println!("✅ .env loaded from: {:?}", path),
+        Err(e) => println!("⚠️  .env load failed: {}", e),
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
