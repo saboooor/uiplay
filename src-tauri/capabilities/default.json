@@ -15,7 +15,11 @@
     "fs:default",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "$APPCONFIG/uiplay/*" }]
+      "allow": [
+        {
+          "path": "$APPCONFIG/uiplay/*"
+        }
+      ]
     }
   ]
 }
