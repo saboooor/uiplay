@@ -1,7 +1,6 @@
 import { readFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { cache } from '../listen';
 import { UiPlayStoreType } from '../types';
-import { invoke } from '@tauri-apps/api/core';
 
 export const regex = /coverart size (.*)/;
 export async function execute(match: RegExpMatchArray, UiPlayStore: UiPlayStoreType) {
@@ -22,14 +21,6 @@ export async function execute(match: RegExpMatchArray, UiPlayStore: UiPlayStoreT
 
     if (!UiPlayStore.NowPlaying) UiPlayStore.NowPlaying = {};
     UiPlayStore.NowPlaying.AlbumArt = `data:image/png;base64,${base64AlbumArt}`;
-
-    try {
-      // Call the Rust command to handle the network request securely
-      const cdnUrl = await invoke<string>('upload_to_cdn', { deviceId: cache.DeviceID });
-      console.log('Uploaded to CDN:', cdnUrl);
-    } catch (uploadError) {
-      console.error('Failed to upload to CDN:', uploadError);
-    }
   }
   catch (error) {
     console.error('Failed to read album art:', error);

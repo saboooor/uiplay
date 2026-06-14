@@ -1,12 +1,15 @@
-mod cdn;
+mod events;
+mod listen;
 mod discord;
 mod uxplay;
 
 use std::fs::create_dir_all;
 
 use tauri::tray::TrayIconBuilder;
-use tauri::{Emitter, Manager, path::BaseDirectory};
+use tauri::{Manager, path::BaseDirectory};
 use tauri_plugin_fs::FsExt;
+
+use crate::listen::{log_output};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,7 +24,10 @@ pub fn run() {
     .setup(|app| {
       // Check if uxplay is installed before proceeding
       if !uxplay::is_uxplay_installed() {
-        log_output(app.handle().clone(), "UxPlay is not installed.");
+        log_output(
+          app.handle().clone(),
+          "UxPlay is not installed."
+        );
         return Ok(());
       }
 
@@ -52,13 +58,7 @@ pub fn run() {
 
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![uxplay::start_uxplay, cdn::upload_to_cdn])
+    .invoke_handler(tauri::generate_handler![uxplay::start_uxplay])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
-}
-
-pub fn log_output(app: tauri::AppHandle, output: impl Into<String>) {
-  let message = output.into();
-  println!("{}", message);
-  app.emit("uxplay-output", message).unwrap();
 }

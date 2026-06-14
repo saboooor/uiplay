@@ -1,4 +1,4 @@
-use crate::{discord, log_output};
+use crate::{discord::{DISCORD_STATE, DiscordState}, listen::{listen_to_uxplay_output, log_output}};
 use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
@@ -58,9 +58,10 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
   if let Err(e) = client.connect() {
     log_output(app.clone(), format!("Failed to connect to Discord IPC: {:?}", e));
   } else {
-    let activity = activity::Activity::new().activity_type(activity::ActivityType::Listening);
+    let activity = activity::Activity::new()
+      .activity_type(activity::ActivityType::Listening);
 
-    *discord::DISCORD_STATE.lock().unwrap() = Some(discord::DiscordState { client, activity });
+    *DISCORD_STATE.lock().unwrap() = Some(DiscordState { client, activity });
     log_output(app.clone(), "Connected to Discord IPC and activity set.");
   }
 
@@ -96,7 +97,11 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
     for line in reader.lines() {
       match line {
         Ok(l) => {
-          tauri::async_runtime::block_on(discord::process_uxplay_output(l.clone()));
+          tauri::async_runtime::block_on(
+            listen_to_uxplay_output(
+              app_stdout.clone(), l.clone()
+            )
+          );
           log_output(app_stdout.clone(), l);
         }
         Err(e) => log_output(app_stdout.clone(), format!("Error reading stdout: {}", e)),
@@ -119,7 +124,7 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
   let status = child.wait().expect("Failed to wait on child");
   log_output(app.clone(), format!("UxPlay process exited with status: {}", status));
 
-  let mut discord_state = discord::DISCORD_STATE.lock().unwrap();
+  let mut discord_state = DISCORD_STATE.lock().unwrap();
   if let Some(state) = discord_state.as_mut() {
     if let Err(e) = state.client.close() {
       log_output(app.clone(), format!("Failed to close Discord IPC: {}", e));
