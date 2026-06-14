@@ -23,7 +23,7 @@ pub fn set_discord_activity() {
         Assets::new()
           .large_image(ALBUM_ART.lock().unwrap().clone())
           .large_text(ALBUM.lock().unwrap().clone())
-          .small_image("uiplay")
+          .small_image("icon")
           .small_text("UiPlay")
       );
 
