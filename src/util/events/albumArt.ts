@@ -18,19 +18,17 @@ export async function execute(match: RegExpMatchArray, UiPlayStore: UiPlayStoreT
     if (!isNewArt) return;
     cache.lastArt = albumArt;
 
+    const base64AlbumArt = btoa(String.fromCharCode(...albumArt));
+
+    if (!UiPlayStore.NowPlaying) UiPlayStore.NowPlaying = {};
+    UiPlayStore.NowPlaying.AlbumArt = `data:image/png;base64,${base64AlbumArt}`;
+
     try {
       // Call the Rust command to handle the network request securely
       const cdnUrl = await invoke<string>('upload_to_cdn', { deviceId: cache.DeviceID });
-
-      // Append a timestamp to the URL to force Discord to bypass its cache if the ID remains the same
-      const freshUrl = `${cdnUrl}?t=${Date.now()}`;
-      const base64AlbumArt = btoa(String.fromCharCode(...albumArt));
-
-      if (!UiPlayStore.NowPlaying) UiPlayStore.NowPlaying = {};
-      UiPlayStore.NowPlaying.AlbumArt = `data:image/png;base64,${base64AlbumArt}`;
-      console.log('Uploaded to CDN:', freshUrl);
+      console.log('Uploaded to CDN:', cdnUrl);
     } catch (uploadError) {
-      console.error('Failed to upload to CDN, falling back to local base64:', uploadError);
+      console.error('Failed to upload to CDN:', uploadError);
     }
   }
   catch (error) {

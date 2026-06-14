@@ -1,0 +1,21 @@
+# Match the 2-space indentation from ESLint
+tab_spaces = 2
+indent_style = "Visual"
+
+# Match always-multiline comma dangling
+trailing_comma = "Vertical"
+
+# Match no-multiple-empty-lines (max: 1)
+blank_lines_upper_bound = 1
+
+# Match the project's Rust edition
+edition = "2024"
+
+# Ensure Unix line endings (typical for JS-heavy environments)
+newline_style = "Unix"
+
+# General code quality and spacing heuristics
+use_small_heuristics = "Max"
+
+# Ignore common non-source directories
+ignore = ["target"]
