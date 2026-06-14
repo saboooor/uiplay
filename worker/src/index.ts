@@ -49,7 +49,7 @@ export default {
       });
 
       // 4. Return the public URL for the client to use
-      const cdnUrl = `${env.R2_URL}/${storageKey}`;
+      const cdnUrl = `${env.R2_URL}/${storageKey}?t=${Date.now()}`;
       return new Response(cdnUrl, {
         headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
       });
