@@ -1,15 +1,19 @@
-use crate::events::album_art::album_art;
-use crate::events::album::album;
-use crate::events::artist::artist;
-use crate::events::audio_progress::audio_progress;
-use crate::events::title::title;
-use crate::events::connection_request::connection_request;
+use crate::events::{
+  album::album,
+  album_art::album_art,
+  artist::artist,
+  audio_progress::audio_progress,
+  title::title,
+  connection_request::connection_request
+};
 
 use regex::Regex;
 use std::sync::{LazyLock, Mutex};
 use tauri::Emitter;
 
 pub static DEVICE_ID: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub static ALBUM: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+pub static ALBUM_ART: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 
 const ALBUM_REGEX: LazyLock<Regex> = LazyLock::new(||
   Regex::new(r"Album: (.*)").unwrap());
@@ -36,26 +40,27 @@ pub fn log_output(app: tauri::AppHandle, output: impl Into<String>) {
   app.emit("uxplay-output", &message).unwrap();
 }
 
-pub async fn listen_to_uxplay_output(app: tauri::AppHandle, output: impl Into<String>) {
-  let message = output.into();
+pub async fn listen_to_uxplay_output(app: tauri::AppHandle, output: String) {
+  println!("{}", output);
+  app.emit("uxplay-output", &output).unwrap();
 
   // caps is the regex captures for each event type, if it matches the output
-  if let Some(caps) = CONNECTION_REQUEST_REGEX.captures(&message) {
+  if let Some(caps) = CONNECTION_REQUEST_REGEX.captures(&output) {
     connection_request(caps);
   }
-  if let Some(_) = ALBUM_ART_REGEX.captures(&message) {
-    album_art(app).await.ok();
-  }
-  if let Some(caps) = TITLE_REGEX.captures(&message) {
+  if let Some(caps) = TITLE_REGEX.captures(&output) {
     title(caps);
   }
-  if let Some(caps) = ARTIST_REGEX.captures(&message) {
+  if let Some(caps) = ARTIST_REGEX.captures(&output) {
     artist(caps);
   }
-  if let Some(caps) = ALBUM_REGEX.captures(&message) {
+  if let Some(caps) = ALBUM_REGEX.captures(&output) {
     album(caps);
   }
-  if let Some(caps) = AUDIO_PROGRESS_REGEX.captures(&message) {
+  if let Some(caps) = AUDIO_PROGRESS_REGEX.captures(&output) {
     audio_progress(caps);
+  }
+  if let Some(_) = ALBUM_ART_REGEX.captures(&output) {
+    let _ = album_art(app.clone()).await;
   }
 }

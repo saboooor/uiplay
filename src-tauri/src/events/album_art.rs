@@ -1,9 +1,11 @@
-use crate::{discord::ACTIVITY_ASSETS, listen::DEVICE_ID};
+use crate::listen::{ALBUM_ART, DEVICE_ID};
 use tauri::{Manager, path::BaseDirectory};
 
 pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
-  let art_path =
-    app.path().resolve("uiplay/albumart.png", BaseDirectory::Config).map_err(|e| e.to_string())?;
+  let art_path = app
+    .path()
+    .resolve("uiplay/albumart.png", BaseDirectory::Config)
+    .map_err(|e| e.to_string())?;
 
   // Read the file directly from the backend
   let album_art = std::fs::read(art_path).map_err(|e| e.to_string())?;
@@ -27,7 +29,7 @@ pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
     .map_err(|e| format!("Failed to read response: {}", e))?;
 
   // set activity asset
-  *ACTIVITY_ASSETS.lock().unwrap() = ACTIVITY_ASSETS.lock().unwrap().clone()
-    .large_image(cdn_url);
+  *ALBUM_ART.lock().unwrap() = cdn_url;
+
   Ok(())
 }
