@@ -2,7 +2,6 @@ use crate::discord;
 use discord_rich_presence::{activity::Timestamps};
 
 pub fn audio_progress(caps: regex::Captures<'_>) {
-  // set discord activity
   if let Ok(mut guard) = discord::DISCORD_STATE.lock()
     && let Some(state) = guard.as_mut()
   {
