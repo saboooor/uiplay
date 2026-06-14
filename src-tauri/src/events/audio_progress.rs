@@ -1,13 +1,23 @@
 use crate::discord;
+use crate::listen::AUDIO_PROGRESS;
 use discord_rich_presence::{activity::Timestamps};
 
 pub fn audio_progress(caps: regex::Captures<'_>) {
+  let progress = caps.get(1).map_or("", |m| m.as_str());
+  let remaining = caps.get(2).map_or("", |m| m.as_str());
+  let length = caps.get(3).map_or("", |m| m.as_str());
+  let cache_key = format!("{}|{}|{}", progress, remaining, length);
+
+  if let Ok(mut cache) = AUDIO_PROGRESS.lock() {
+    if *cache == cache_key {
+      return;
+    }
+    *cache = cache_key;
+  }
+
   if let Ok(mut guard) = discord::DISCORD_STATE.lock()
     && let Some(state) = guard.as_mut()
   {
-      let progress = caps.get(1).map_or("", |m| m.as_str());
-      let length = caps.get(3).map_or("", |m| m.as_str());
-
       fn parse_min_sec(s: &str) -> Option<i64> {
         let mut parts = s.split(':');
         let min = parts.next()?.parse::<i64>().ok()?;

@@ -1,7 +1,8 @@
 use crate::discord;
-use crate::listen::{ALBUM, ALBUM_ART, DEVICE_ID};
-use discord_rich_presence::activity::Assets;
+use crate::listen::{ALBUM_ART, ALBUM_ART_HASH, DEVICE_ID};
 use tauri::{Manager, path::BaseDirectory};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
   let art_path = app
@@ -11,10 +12,19 @@ pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
 
   // Read the file directly from the backend
   let album_art = std::fs::read(art_path).map_err(|e| e.to_string())?;
+  let mut hasher = DefaultHasher::new();
+  album_art.hash(&mut hasher);
+  let current_hash = hasher.finish();
+
+  if let Ok(cache) = ALBUM_ART_HASH.lock() {
+    if *cache == current_hash {
+      return Ok(());
+    }
+  }
 
   let auth_token = std::env::var("AUTH_TOKEN").map_err(|e| e.to_string())?;
 
-  // Use reqwest to upload to your Worker
+  // Use reqwest to upload to worker
   let client = reqwest::Client::new();
   let response = client
     .post("https://uiplay.luminescent.dev/upload")
@@ -30,20 +40,15 @@ pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
     .await
     .map_err(|e| format!("Failed to read response: {}", e))?;
 
+  if let Ok(mut cache) = ALBUM_ART_HASH.lock() {
+    *cache = current_hash;
+  }
+
   // set activity asset
   *ALBUM_ART.lock().unwrap() = cdn_url;
 
-  if let Ok(mut guard) = discord::DISCORD_STATE.lock()
-    && let Some(state) = guard.as_mut()
-  {
-    state.activity = state.activity.clone().assets(
-      Assets::new()
-        .large_image(ALBUM_ART.lock().unwrap().clone())
-        .large_text(ALBUM.lock().unwrap().clone())
-        .small_image("uiplay")
-        .small_text("UiPlay")
-    );
-  }
+  // set discord activity
+  discord::set_discord_activity();
 
   Ok(())
 }

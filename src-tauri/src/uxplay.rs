@@ -1,6 +1,6 @@
 use crate::{discord::{DISCORD_STATE, DiscordState}, listen::{listen_to_uxplay_output, log_output}};
 use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use tauri::{Manager, path::BaseDirectory};
 
@@ -93,19 +93,36 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
   let stdout = child.stdout.take().expect("Failed to capture stdout");
   let app_stdout = app.clone();
   std::thread::spawn(move || {
-    let reader = BufReader::new(stdout);
-    for line in reader.lines() {
-      match line {
-        Ok(l) => {
-          tauri::async_runtime::block_on(
-            listen_to_uxplay_output(
-              app_stdout.clone(), l.clone()
-            )
-          );
-          log_output(app_stdout.clone(), l);
+    let mut reader = BufReader::new(stdout);
+    let mut buffer = Vec::new();
+    let mut byte = [0u8; 1];
+
+    loop {
+      match reader.read(&mut byte) {
+        Ok(0) => {
+          if !buffer.is_empty() {
+            let line = String::from_utf8_lossy(&buffer).to_string();
+            tauri::async_runtime::block_on(listen_to_uxplay_output(app_stdout.clone(), line));
+          }
+          break;
         }
-        Err(e) => log_output(app_stdout.clone(), format!("Error reading stdout: {}", e)),
-      };
+        Ok(_) => {
+          match byte {
+            [b'\n'] | [b'\r'] => {
+              if !buffer.is_empty() {
+                let line = String::from_utf8_lossy(&buffer).to_string();
+                tauri::async_runtime::block_on(listen_to_uxplay_output(app_stdout.clone(), line));
+                buffer.clear();
+              }
+            }
+            [ch] => buffer.push(ch),
+          }
+        }
+        Err(e) => {
+          log_output(app_stdout.clone(), format!("Error reading stdout: {}", e));
+          break;
+        }
+      }
     }
   });
 

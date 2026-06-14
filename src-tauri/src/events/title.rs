@@ -1,11 +1,16 @@
 use crate::discord;
+use crate::listen::TITLE;
 
 pub fn title(caps: regex::Captures<'_>) {
-  // set discord activity
-  if let Ok(mut guard) = discord::DISCORD_STATE.lock()
-    && let Some(state) = guard.as_mut()
-  {
-    let title = caps.get(1).map_or("", |m| m.as_str()).to_string();
-    state.activity = state.activity.clone().details(title);
+  let title = caps.get(1).map_or("", |m| m.as_str()).to_string();
+
+  if let Ok(mut cache) = TITLE.lock() {
+    if *cache == title {
+      return;
+    }
+    *cache = title.clone();
   }
+
+  // set discord activity
+  discord::set_discord_activity();
 }

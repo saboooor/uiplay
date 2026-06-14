@@ -27,18 +27,6 @@ export default component$(() => {
 
   // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(() => {
-    setInterval(() => {
-      if (!UiPlayStore.NowPlaying?.Progress) return;
-      UiPlayStore.NowPlaying.Progress.sec += 1;
-      if (UiPlayStore.NowPlaying.Progress.sec >= 60) {
-        UiPlayStore.NowPlaying.Progress.sec = 0;
-        UiPlayStore.NowPlaying.Progress.min += 1;
-      }
-    }, 1000);
-  });
-
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(() => {
     if (!terminalRef.value || !isBrowser) return;
 
     // get current css variable since xterm doesn't support variables directly
@@ -62,6 +50,10 @@ export default component$(() => {
     listen<string>('uxplay-output', (event) => {
       term.write(event.payload + '\r\n');
       listenToUxPlayOutput(event, UiPlayStore);
+    });
+
+    listen<string>('app-output', (event) => {
+      term.write(event.payload + '\r\n');
     });
 
     term.loadAddon(fitSignal.value);
