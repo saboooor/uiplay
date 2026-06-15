@@ -4,7 +4,8 @@
 
 A Tauri and Qwik based UxPlay wrapper that forwards music metadata to Discord Rich Presence and MPRIS.
 
-<img width="800" height="600" alt="image" src="https://raw.githubusercontent.com/saboooor/uiplay/refs/heads/master/screenshot.png" />
+<img height="600" alt="image" src="https://raw.githubusercontent.com/saboooor/uiplay/refs/heads/master/screenshots/app.png" />
+<img height="300" alt="image" src="https://raw.githubusercontent.com/saboooor/uiplay/refs/heads/master/screenshots/activity.png" />
 
 ## Building
 To build the project, ensure you have the necessary dependencies installed:

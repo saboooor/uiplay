@@ -13,12 +13,6 @@ use crate::listen::{log_output};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  // Load environment variables and print status for debugging
-  match dotenvy::dotenv() {
-    Ok(path) => println!("✅ .env loaded from: {:?}", path),
-    Err(e) => println!("⚠️ .env load failed: {}", e),
-  }
-
   tauri::Builder::default()
     .plugin(tauri_plugin_fs::init())
     .setup(|app| {

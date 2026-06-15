@@ -17,6 +17,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+/**
+ * Generates a unique API key for a device using the server's master secret.
+ */
+async function generateDeviceKey(deviceId: string, secret: string) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`${deviceId}:${secret}`);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Handle CORS preflight requests
@@ -26,18 +37,38 @@ export default {
 
     const url = new URL(request.url);
 
-    // Route matching for the /upload path used in Tauri
-    if (url.pathname === '/upload' && request.method === 'POST') {
-      // 1. Validate Secret Token
-      const auth = request.headers.get('Authorization');
-      if (auth !== `Bearer ${env.AUTH_TOKEN}`) {
-        return new Response('Unauthorized', { status: 401 });
+    // Endpoint for the client to retrieve their specific API key
+    if (url.pathname === '/auth' && request.method === 'POST') {
+      // Check for a shared application secret to ensure the request is from the official app
+      const appSecret = request.headers.get('X-App-Secret');
+      if (!env.APP_SECRET || appSecret !== env.APP_SECRET) {
+        return new Response('Forbidden', { status: 403, headers: corsHeaders });
       }
 
-      // 2. Extract metadata from query string
       const deviceId = url.searchParams.get('device_id');
       if (!deviceId) {
-        return new Response('Missing device_id', { status: 400 });
+        return new Response('Missing device_id', { status: 400, headers: corsHeaders });
+      }
+
+      const key = await generateDeviceKey(deviceId, env.AUTH_TOKEN);
+      return new Response(key, {
+        headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
+      });
+    }
+
+    // Route matching for the /upload path used in Tauri
+    if (url.pathname === '/upload' && request.method === 'POST') {
+      // 1. Extract metadata from query string
+      const deviceId = url.searchParams.get('device_id');
+      if (!deviceId) {
+        return new Response('Missing device_id', { status: 400, headers: corsHeaders });
+      }
+
+      // 2. Validate Device-Specific Token
+      const expectedKey = await generateDeviceKey(deviceId, env.AUTH_TOKEN);
+      const auth = request.headers.get('Authorization');
+      if (auth !== `Bearer ${expectedKey}`) {
+        return new Response('Unauthorized', { status: 401, headers: corsHeaders });
       }
 
       // 3. Process the file (binary body) and store in R2
