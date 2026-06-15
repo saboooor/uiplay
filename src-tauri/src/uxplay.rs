@@ -64,8 +64,16 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
     *DISCORD_STATE.lock().unwrap() = Some(DiscordState { client, activity });
     log_output(app.clone(), "Connected to Discord IPC and activity set.");
   }
+  // Include both standard and multiarch paths for GStreamer plugins
+  let default_paths = [
+    "/usr/lib/gstreamer-1.0",
+    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0",
+  ];
+  let user_path = std::env::var("GST_PLUGIN_PATH").unwrap_or_default();
+  let merged = format!("{}:{}", user_path, default_paths.join(":"));
 
   let mut child = Command::new("stdbuf")
+    .env("GST_PLUGIN_PATH", merged)
     .arg("-oL")
     .arg("uxplay")
     .arg("-n")
