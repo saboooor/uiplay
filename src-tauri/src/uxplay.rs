@@ -65,12 +65,7 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
     log_output(app.clone(), "Connected to Discord IPC and activity set.");
   }
 
-  let default_path = "/usr/lib/gstreamer-1.0";
-  let user_path = std::env::var("GST_PLUGIN_PATH").unwrap_or_default();
-  let merged = format!("{}:{}", user_path, default_path);
-
   let mut child = Command::new("stdbuf")
-    .env("GST_PLUGIN_PATH", merged)
     .arg("-oL")
     .arg("uxplay")
     .arg("-n")
