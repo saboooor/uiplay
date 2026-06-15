@@ -1,7 +1,8 @@
 use crate::discord;
 use crate::listen::ARTIST;
+use tauri::Emitter;
 
-pub fn artist(caps: regex::Captures<'_>) {
+pub fn artist(app: tauri::AppHandle, caps: regex::Captures<'_>) {
   let artist = caps.get(1).map_or("", |m| m.as_str()).to_string();
 
   if let Ok(mut cache) = ARTIST.lock() {
@@ -12,5 +13,6 @@ pub fn artist(caps: regex::Captures<'_>) {
   }
 
   // set discord activity
+  app.emit("Artist", &artist).unwrap();
   discord::set_discord_activity();
 }

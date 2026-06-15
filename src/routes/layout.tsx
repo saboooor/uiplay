@@ -47,14 +47,24 @@ export default component$(() => {
     terminalInstance.value = term;
     fitSignal.value = fitAddon;
 
-    listen<string>('uxplay-output', (event) => {
-      term.write(event.payload + '\r\n');
-      listenToUxPlayOutput(event, UiPlayStore);
-    });
+    Promise.all([
+      ['Title', 'Artist', 'Album', 'Genre']
+        .map(eventName =>
+          listen<string>(eventName, (event) => {
+            UiPlayStore.NowPlaying = {
+              ...UiPlayStore.NowPlaying,
+              [eventName]: event.payload,
+            };
+          })),
 
-    listen<string>('app-output', (event) => {
-      term.write(event.payload + '\r\n');
-    });
+      listen<string>('uxplay-output', (event) => {
+        term.write(event.payload + '\r\n');
+        listenToUxPlayOutput(event, UiPlayStore);
+      }),
+      listen<string>('app-output', (event) => {
+        term.write(event.payload + '\r\n');
+      }),
+    ]);
 
     term.loadAddon(fitSignal.value);
     term.loadAddon(webLinks);

@@ -1,30 +1,20 @@
 mod events;
 mod listen;
 mod discord;
+mod mediaplayer;
+mod shairport;
 mod uxplay;
 
 use std::fs::create_dir_all;
 
-use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, path::BaseDirectory};
 use tauri_plugin_fs::FsExt;
-
-use crate::listen::{log_output};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_fs::init())
     .setup(|app| {
-      // Check if uxplay is installed before proceeding
-      if !uxplay::is_uxplay_installed() {
-        log_output(
-          app.handle().clone(),
-          "UxPlay is not installed."
-        );
-        return Ok(());
-      }
-
       // Initialize logging
       if cfg!(debug_assertions) {
         app
@@ -44,15 +34,18 @@ pub fn run() {
       let scope = app.fs_scope();
       let _ = scope.allow_directory(&config_dir, false);
 
-      // Create a system tray icon
-      TrayIconBuilder::new().icon(app.default_window_icon().unwrap().clone()).build(app)?;
-
-      // Start the uxplay process
-      tauri::async_runtime::spawn(uxplay::start_uxplay(app.handle().clone()));
+      // Start the media player process
+      if uxplay::is_uxplay_installed() || shairport::is_shairport_installed() {
+        listen::log_output(app.handle().clone(), "Starting media streaming process...");
+        tauri::async_runtime::spawn(mediaplayer::start_mediaplayer(app.handle().clone()));
+      } else {
+        listen::log_output(app.handle().clone(), "Neither Shairport-sync nor UxPlay is installed. Please install at least one of them to use UiPlay.");
+        return Ok(());
+      }
 
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![uxplay::start_uxplay])
+    .invoke_handler(tauri::generate_handler![mediaplayer::start_mediaplayer])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
