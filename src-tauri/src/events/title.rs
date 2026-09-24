@@ -2,7 +2,6 @@ use crate::discord;
 use crate::listen::TITLE;
 use tauri::Emitter;
 
-
 pub fn title(app: tauri::AppHandle, caps: regex::Captures<'_>) {
   let title = caps.get(1).map_or("", |m| m.as_str()).to_string();
 

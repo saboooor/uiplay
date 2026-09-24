@@ -1,6 +1,9 @@
-use discord_rich_presence::{DiscordIpcClient, activity::{self, Assets}};
-use std::sync::{Arc, LazyLock, Mutex};
 use discord_rich_presence::DiscordIpc;
+use discord_rich_presence::{
+  DiscordIpcClient,
+  activity::{self, Assets},
+};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::listen::{ALBUM, ALBUM_ART, ARTIST, TITLE};
 
@@ -15,8 +18,12 @@ pub static DISCORD_STATE: LazyLock<SharedDiscordState> =
 
 pub fn set_discord_activity() {
   let arc = DISCORD_STATE.clone();
-  if let Ok(mut guard) = arc.lock() && let Some(state) = guard.as_mut() {
-    state.activity = state.activity.clone()
+  if let Ok(mut guard) = arc.lock()
+    && let Some(state) = guard.as_mut()
+  {
+    state.activity = state
+      .activity
+      .clone()
       .details(TITLE.lock().unwrap().clone())
       .state(ARTIST.lock().unwrap().clone())
       .assets(
@@ -24,7 +31,7 @@ pub fn set_discord_activity() {
           .large_image(ALBUM_ART.lock().unwrap().clone())
           .large_text(ALBUM.lock().unwrap().clone())
           .small_image("icon")
-          .small_text("UiPlay")
+          .small_text("UiPlay"),
       );
 
     if let Err(e) = state.client.set_activity(state.activity.clone()) {

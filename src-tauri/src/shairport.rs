@@ -1,128 +1,302 @@
-use crate::{discord::{DISCORD_STATE}, listen::{log_output}};
-use discord_rich_presence::{DiscordIpc};
-use std::io::{BufRead, BufReader, Read};
+use crate::listen::{listen_to_shairport_metadata, log_output};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use std::ffi::CString;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::FileTypeExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{
+  Arc,
+  atomic::{AtomicBool, Ordering},
+};
+use tauri::{Manager, path::BaseDirectory};
 
 pub fn is_shairport_installed() -> bool {
-  std::process::Command::new("which")
-    .arg("shairport-sync")
-    .output()
-    .map(|output| output.status.success())
-    .unwrap_or(false)
+  Command::new("shairport-sync")
+    .arg("-V")
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status()
+    .is_ok_and(|status| status.success())
 }
 
 pub async fn kill_shairport(app: tauri::AppHandle) {
-  let check = Command::new("pgrep").arg("shairport-sync").output();
-  let mut killed = false;
+  // Shairport Sync renames its main Linux task after startup (for example to
+  // `convolver`), so matching the task name with `pgrep -x` misses a running
+  // receiver. Match its unchanged command line instead.
+  let process_pattern = r"^shairport-sync(?: |$)";
+  let check = Command::new("pgrep").args(["-f", process_pattern]).output();
   match check {
-    Ok(output) if !output.stdout.is_empty() => {
-      log_output(app.clone(), "Shairport is already running, restarting...");
-      let kill = Command::new("pkill").arg("shairport-sync").output();
-      match kill {
-        Ok(_) => {
-          killed = true;
+    Ok(output) if output.status.success() => {
+      log_output(app.clone(), "Shairport Sync is already running, restarting...");
+      match Command::new("pkill").args(["-f", process_pattern]).status() {
+        Ok(status) if status.success() => {
           for _ in 0..10 {
-            let check_again = Command::new("pgrep").arg("shairport-sync").output();
-            match check_again {
-              Ok(out) if out.stdout.is_empty() => break,
-              _ => std::thread::sleep(std::time::Duration::from_millis(200)),
+            let stopped = Command::new("pgrep")
+              .args(["-f", process_pattern])
+              .status()
+              .is_ok_and(|status| !status.success());
+            if stopped {
+              log_output(app, "Shairport Sync process killed successfully.");
+              return;
             }
+            std::thread::sleep(std::time::Duration::from_millis(200));
           }
+          log_output(app, "Shairport Sync did not stop within two seconds.");
         }
-        Err(e) => {
-          log_output(app.clone(), format!("Failed to kill Shairport: {}", e));
-          return;
-        }
+        Ok(status) => log_output(app, format!("Failed to kill Shairport Sync: {status}")),
+        Err(error) => log_output(app, format!("Failed to kill Shairport Sync: {error}")),
       }
     }
-    Ok(_) => {
-      log_output(app.clone(), "Shairport is not running, starting a new instance...");
-    }
-    Err(e) => {
-      log_output(app.clone(), format!("Failed to check if Shairport is running: {}", e));
-      return;
-    }
-  }
-  if killed {
-    log_output(app.clone(), "Shairport process killed successfully.");
+    Ok(_) => log_output(app, "Shairport Sync is not running, starting a new instance..."),
+    Err(error) => log_output(app, format!("Failed to check Shairport Sync: {error}")),
   }
 }
 
-#[tauri::command]
-pub async fn start_shairport(app: tauri::AppHandle) {
-  kill_shairport(app.clone()).await;
+pub async fn start_shairport(app: tauri::AppHandle, name: String) {
+  let config_dir = match app.path().resolve("uiplay", BaseDirectory::Config) {
+    Ok(path) => path,
+    Err(error) => {
+      log_output(app, format!("Failed to resolve the UiPlay config directory: {error}"));
+      return;
+    }
+  };
+  let metadata_pipe = config_dir.join("shairport-metadata");
+  let album_art = config_dir.join("albumart.png");
+  let shairport_config = config_dir.join("shairport-sync.conf");
+  if let Err(error) = fs::write(
+    &shairport_config,
+    r#"general = {
+  dbus_service_bus = "session";
+  mpris_service_bus = "session";
+};
+"#,
+  ) {
+    log_output(app, format!("Failed to write the Shairport Sync configuration: {error}"));
+    return;
+  }
+  if let Err(error) = create_metadata_pipe(&metadata_pipe) {
+    log_output(app, format!("Failed to create the Shairport metadata pipe: {error}"));
+    return;
+  }
 
-  let mut child = Command::new("stdbuf")
-    .arg("-oL")
-    .arg("shairport-sync")
+  // Opening both ends keeps startup deterministic: neither this reader nor
+  // Shairport Sync has to wait for the other process to open the FIFO first.
+  let metadata = match OpenOptions::new().read(true).write(true).open(&metadata_pipe) {
+    Ok(file) => file,
+    Err(error) => {
+      log_output(app, format!("Failed to open the Shairport metadata pipe: {error}"));
+      return;
+    }
+  };
+
+  let mut child = match Command::new("shairport-sync")
+    .arg("-c")
+    .arg(shairport_config)
+    .arg("-a")
+    .arg(name)
+    .arg("-M")
+    .arg(format!("--metadata-pipename={}", metadata_pipe.display()))
+    .arg("-g")
     .stdout(Stdio::piped())
     .stderr(Stdio::piped())
     .spawn()
-    .expect("Failed to start shairport-sync with stdbuf");
+  {
+    Ok(child) => child,
+    Err(error) => {
+      log_output(app, format!("Failed to start Shairport Sync: {error}"));
+      return;
+    }
+  };
 
-  let stdout = child.stdout.take().expect("Failed to capture stdout");
-  let app_stdout = app.clone();
+  let metadata_stop = Arc::new(AtomicBool::new(false));
+  let metadata_reader =
+    spawn_metadata_reader(app.clone(), metadata, album_art, metadata_stop.clone());
+  if let Some(stdout) = child.stdout.take() {
+    spawn_log_reader(app.clone(), stdout, "[SHAIRPORT]");
+  }
+  if let Some(stderr) = child.stderr.take() {
+    spawn_log_reader(app.clone(), stderr, "[SHAIRPORT STDERR]");
+  }
+
+  let status = match child.wait() {
+    Ok(status) => status,
+    Err(error) => {
+      log_output(app, format!("Failed to wait for Shairport Sync: {error}"));
+      return;
+    }
+  };
+  log_output(app.clone(), format!("Shairport Sync exited with status: {status}"));
+  metadata_stop.store(true, Ordering::Relaxed);
+  // Wake the FIFO reader so it can observe the stop flag and terminate before
+  // a later manual restart creates another reader for the same pipe.
+  if let Ok(mut pipe) = OpenOptions::new().write(true).open(&metadata_pipe) {
+    let _ = pipe.write_all(b"\n");
+  }
+  let _ = metadata_reader.join();
+
+  if !status.success() {
+    log_output(
+      app,
+      "Shairport Sync stopped after an error. Fix the error and restart it from UiPlay.",
+    );
+  }
+}
+
+fn create_metadata_pipe(path: &Path) -> std::io::Result<()> {
+  match fs::symlink_metadata(path) {
+    Ok(metadata) if metadata.file_type().is_fifo() => return Ok(()),
+    Ok(_) => fs::remove_file(path)?,
+    Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+    Err(_) => {}
+  }
+
+  let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, "pipe path contains a NUL byte")
+  })?;
+  // SAFETY: path is a valid, NUL-terminated pathname and mode only contains permission bits.
+  if unsafe { libc::mkfifo(path.as_ptr(), 0o600) } == 0 {
+    Ok(())
+  } else {
+    Err(std::io::Error::last_os_error())
+  }
+}
+
+fn spawn_metadata_reader(
+  app: tauri::AppHandle,
+  metadata: File,
+  album_art: PathBuf,
+  stop: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
   std::thread::spawn(move || {
-    let mut reader = BufReader::new(stdout);
-    let mut buffer = Vec::new();
-    let mut byte = [0u8; 1];
+    let mut reader = BufReader::new(metadata);
+    while !stop.load(Ordering::Relaxed) {
+      match read_metadata_item(&mut reader) {
+        Ok(Some(item)) => {
+          listen_to_shairport_metadata(app.clone(), &item.kind, &item.code, item.data, &album_art)
+        }
+        Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+        Err(error) => {
+          log_output(app.clone(), format!("Failed to read Shairport metadata: {error}"))
+        }
+      }
+    }
+  })
+}
 
-    loop {
-      match reader.read(&mut byte) {
-        Ok(0) => {
-          if !buffer.is_empty() {
-            let line = String::from_utf8_lossy(&buffer).to_string();
-            log_output(app_stdout.clone(), line);
-          }
-          break;
-        }
-        Ok(_) => {
-          match byte {
-            [b'\n'] | [b'\r'] => {
-              if !buffer.is_empty() {
-                let line = String::from_utf8_lossy(&buffer).to_string();
-                log_output(app_stdout.clone(), line);
-                buffer.clear();
-              }
-            }
-            [ch] => buffer.push(ch),
-          }
-        }
-        Err(e) => {
-          log_output(app_stdout.clone(), format!("Error reading stdout: {}", e));
+fn spawn_log_reader(
+  app: tauri::AppHandle,
+  stream: impl std::io::Read + Send + 'static,
+  prefix: &'static str,
+) {
+  std::thread::spawn(move || {
+    for line in BufReader::new(stream).lines() {
+      match line {
+        Ok(line) if !line.is_empty() => log_output(app.clone(), format!("{prefix} {line}")),
+        Ok(_) => {}
+        Err(error) => {
+          log_output(app.clone(), format!("Error reading Shairport Sync output: {error}"));
           break;
         }
       }
     }
   });
+}
 
-  let stderr = child.stderr.take().expect("Failed to capture stderr");
-  let app_stderr = app.clone();
-  std::thread::spawn(move || {
-    let reader = BufReader::new(stderr);
-    for line in reader.lines() {
-      match line {
-        Ok(l) => log_output(app_stderr.clone(), format!("[STDERR] {}", l)),
-        Err(e) => log_output(app_stderr.clone(), format!("Error reading stderr: {}", e)),
-      };
-    }
-  });
+#[derive(Debug, PartialEq)]
+struct MetadataItem {
+  kind: String,
+  code: String,
+  data: Vec<u8>,
+}
 
-  let status = child.wait().expect("Failed to wait on child");
-  log_output(app.clone(), format!("Shairport process exited with status: {}", status));
-
-  let mut discord_state = DISCORD_STATE.lock().unwrap();
-  if let Some(state) = discord_state.as_mut() {
-    if let Err(e) = state.client.close() {
-      log_output(app.clone(), format!("Failed to close Discord IPC: {}", e));
-    } else {
-      log_output(app.clone(), "Disconnected from Discord IPC successfully.");
-    }
-    *discord_state = None;
+fn read_metadata_item(reader: &mut impl BufRead) -> std::io::Result<Option<MetadataItem>> {
+  let mut header = String::new();
+  if reader.read_line(&mut header)? == 0 {
+    return Ok(None);
+  }
+  let Some(kind) = xml_value(&header, "type").and_then(hex_code) else { return Ok(None) };
+  let Some(code) = xml_value(&header, "code").and_then(hex_code) else { return Ok(None) };
+  let length = xml_value(&header, "length").and_then(|value| value.parse().ok()).unwrap_or(0);
+  if length == 0 {
+    return Ok(Some(MetadataItem { kind, code, data: Vec::new() }));
   }
 
-  log_output(app.clone(), "Trying to start shairport-sync again...");
-  std::thread::spawn(move || {
-    tauri::async_runtime::block_on(start_shairport(app));
-  });
+  let mut opening = String::new();
+  reader.read_line(&mut opening)?;
+  if opening.trim() != "<data encoding=\"base64\">" {
+    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "missing Base64 data tag"));
+  }
+  let mut encoded = String::new();
+  loop {
+    let mut line = String::new();
+    if reader.read_line(&mut line)? == 0 {
+      return Err(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "metadata item ended before its closing tag",
+      ));
+    }
+    if let Some((data, _)) = line.split_once("</data></item>") {
+      encoded.extend(data.chars().filter(|character| !character.is_ascii_whitespace()));
+      break;
+    }
+    encoded.extend(line.chars().filter(|character| !character.is_ascii_whitespace()));
+  }
+  let data = STANDARD
+    .decode(&encoded)
+    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+  if data.len() != length {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      "invalid metadata item length",
+    ));
+  }
+  Ok(Some(MetadataItem { kind, code, data }))
+}
+
+fn xml_value<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
+  let start_tag = format!("<{tag}>");
+  let end_tag = format!("</{tag}>");
+  let start = text.find(&start_tag)? + start_tag.len();
+  let end = text[start..].find(&end_tag)? + start;
+  Some(&text[start..end])
+}
+
+fn hex_code(value: &str) -> Option<String> {
+  let number = u32::from_str_radix(value, 16).ok()?;
+  String::from_utf8(number.to_be_bytes().to_vec()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn parses_text_metadata() {
+    let input = b"<item><type>636f7265</type><code>6d696e6d</code><length>4</length>\n<data encoding=\"base64\">\nU29uZw==</data></item>\n";
+    let item = read_metadata_item(&mut &input[..]).unwrap().unwrap();
+    assert_eq!(
+      item,
+      MetadataItem { kind: "core".into(), code: "minm".into(), data: b"Song".to_vec() }
+    );
+  }
+
+  #[test]
+  fn parses_wrapped_metadata() {
+    let input = b"<item><type>636f7265</type><code>6d696e6d</code><length>12</length>\n<data encoding=\"base64\">\nSGVsbG8s\nIHdvcmxk\n</data></item>\n";
+    let item = read_metadata_item(&mut &input[..]).unwrap().unwrap();
+    assert_eq!(
+      item,
+      MetadataItem { kind: "core".into(), code: "minm".into(), data: b"Hello, world".to_vec() }
+    );
+  }
+
+  #[test]
+  fn parses_empty_metadata() {
+    let input = b"<item><type>73736e63</type><code>70626567</code><length>0</length></item>\n";
+    let item = read_metadata_item(&mut &input[..]).unwrap().unwrap();
+    assert_eq!(item, MetadataItem { kind: "ssnc".into(), code: "pbeg".into(), data: Vec::new() });
+  }
 }

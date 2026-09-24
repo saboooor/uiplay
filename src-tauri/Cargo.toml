@@ -1,6 +1,6 @@
 [package]
 name = "uiplay"
-version = "0.5.0"
+version = "0.6.0"
 description = "UiPlay"
 authors = ["saboooor"]
 license = ""
@@ -15,15 +15,17 @@ name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.6.2", features = [] }
+tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-log = "0.4"
-tauri = { version = "2.11.2", features = ["tray-icon"] }
-tauri-plugin-log = "2"
-tauri-plugin-fs = "2"
+serde_json = "1.0.151"
+serde = { version = "1.0.229", features = ["derive"] }
+log = "0.4.34"
+tauri = { version = "2.11.6", features = ["tray-icon"] }
+tauri-plugin-log = "2.9.2"
+tauri-plugin-fs = "2.5.2"
 discord-rich-presence = "1.1.0"
-regex = "1.12.4"
-reqwest = { version = "0.13.4", features = ["query"] }
+regex = "1.13.1"
+base64 = "0.23.1"
+libc = "0.2.189"
+reqwest = { version = "0.13.5", features = ["query"] }

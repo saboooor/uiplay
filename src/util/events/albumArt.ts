@@ -3,26 +3,35 @@ import { cache } from '../listen';
 import { UiPlayStoreType } from '../types';
 
 export const regex = /coverart size (.*)/;
-export async function execute(match: RegExpMatchArray, UiPlayStore: UiPlayStoreType) {
+export async function execute(
+  match: RegExpMatchArray,
+  UiPlayStore: UiPlayStoreType
+) {
   try {
     const albumArt = await readFile('uiplay/albumart.png', {
       baseDir: BaseDirectory.Config,
     });
 
     // Deduplicate: Only upload if the art is different from the last one we processed
-    const isNewArt = !cache.lastArt ||
+    const isNewArt =
+      !cache.lastArt ||
       cache.lastArt.length !== albumArt.length ||
       albumArt.some((byte, i) => byte !== cache.lastArt![i]);
 
     if (!isNewArt) return;
     cache.lastArt = albumArt;
 
-    const base64AlbumArt = btoa(String.fromCharCode(...albumArt));
+    let binaryAlbumArt = '';
+    for (let offset = 0; offset < albumArt.length; offset += 0x8000) {
+      binaryAlbumArt += String.fromCharCode(
+        ...albumArt.subarray(offset, offset + 0x8000)
+      );
+    }
+    const base64AlbumArt = btoa(binaryAlbumArt);
 
     if (!UiPlayStore.NowPlaying) UiPlayStore.NowPlaying = {};
     UiPlayStore.NowPlaying.AlbumArt = `data:image/png;base64,${base64AlbumArt}`;
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Failed to read album art:', error);
   }
-};
+}

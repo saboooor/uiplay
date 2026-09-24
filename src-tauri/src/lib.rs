@@ -1,7 +1,8 @@
+mod discord;
 mod events;
 mod listen;
-mod discord;
 mod mediaplayer;
+mod settings;
 mod shairport;
 mod uxplay;
 
@@ -45,7 +46,12 @@ pub fn run() {
 
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![mediaplayer::start_mediaplayer])
+    .invoke_handler(tauri::generate_handler![
+      mediaplayer::start_mediaplayer,
+      listen::control_shairport,
+      settings::get_settings,
+      settings::save_settings,
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

@@ -1,8 +1,4 @@
-use crate::{
-  discord::DISCORD_STATE,
-  listen::{listen_to_uxplay_output, log_output},
-};
-use discord_rich_presence::DiscordIpc;
+use crate::listen::{listen_to_uxplay_output, log_output};
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -53,16 +49,13 @@ pub async fn kill_uxplay(app: tauri::AppHandle) {
   }
 }
 
-#[tauri::command]
-pub async fn start_uxplay(app: tauri::AppHandle) {
-  kill_uxplay(app.clone()).await;
-
+pub async fn start_uxplay(app: tauri::AppHandle, name: String) {
   let mut command = Command::new("stdbuf");
   command
     .arg("-oL")
     .arg("uxplay")
     .arg("-n")
-    .arg("UiPlay")
+    .arg(name)
     .arg("-ca")
     .arg(
       app
@@ -145,16 +138,6 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
     }
   };
   log_output(app.clone(), format!("UxPlay process exited with status: {}", status));
-
-  let mut discord_state = DISCORD_STATE.lock().unwrap();
-  if let Some(state) = discord_state.as_mut() {
-    if let Err(e) = state.client.close() {
-      log_output(app.clone(), format!("Failed to close Discord IPC: {}", e));
-    } else {
-      log_output(app.clone(), "Disconnected from Discord IPC successfully.");
-    }
-    *discord_state = None;
-  }
 
   if !status.success() {
     log_output(app, "UxPlay stopped after an error. Fix the error and restart it from UiPlay.");

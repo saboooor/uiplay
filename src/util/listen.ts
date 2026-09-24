@@ -7,12 +7,12 @@ export const cache = {
   lastArt: null as Uint8Array | null,
 };
 
-export const listenToUxPlayOutput = async (event: Event<string>, UiPlayStore: UiPlayStoreType) => {
-  const regex = regexes.find(r => r.regex.test(event.payload));
+export const listenToUxPlayOutput = (
+  event: Event<string>,
+  UiPlayStore: UiPlayStoreType
+) => {
+  const regex = regexes.find((r) => r.regex.test(event.payload));
   if (!regex) return;
 
-  regex.execute(
-    event.payload.match(regex.regex)!,
-    UiPlayStore,
-  );
+  regex.execute(event.payload.match(regex.regex)!, UiPlayStore);
 };

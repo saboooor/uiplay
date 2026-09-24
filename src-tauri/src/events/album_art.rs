@@ -1,20 +1,21 @@
 use crate::discord;
 use crate::listen::{ALBUM_ART, ALBUM_ART_HASH, DEVICE_ID, log_output};
-use tauri::{Manager, path::BaseDirectory};
+use reqwest::Client;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{LazyLock, Mutex};
-use reqwest::Client;
+use tauri::{Manager, path::BaseDirectory};
 
 const APP_SECRET: &str = env!("APP_SECRET");
 
 pub static AUTH_TOKEN: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 
 pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
-  let art_path = app
-    .path()
-    .resolve("uiplay/albumart.png", BaseDirectory::Config)
-    .map_err(|e| e.to_string())?;
+  // Never hold a synchronous mutex guard across a network await. Apart from
+  // avoiding contention, this keeps the future safe to run on Tauri's pool.
+  let device_id = DEVICE_ID.lock().map_err(|e| e.to_string())?.clone();
+  let art_path =
+    app.path().resolve("uiplay/albumart.png", BaseDirectory::Config).map_err(|e| e.to_string())?;
 
   // Read the file directly from the backend
   let album_art = std::fs::read(art_path).map_err(|e| e.to_string())?;
@@ -22,10 +23,10 @@ pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
   album_art.hash(&mut hasher);
   let current_hash = hasher.finish();
 
-  if let Ok(cache) = ALBUM_ART_HASH.lock() {
-    if *cache == current_hash {
-      return Ok(());
-    }
+  if let Ok(cache) = ALBUM_ART_HASH.lock()
+    && *cache == current_hash
+  {
+    return Ok(());
   }
 
   if (*AUTH_TOKEN.lock().unwrap()).is_empty() {
@@ -34,18 +35,16 @@ pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
     let response = client
       .post("https://uiplay.luminescent.dev/auth")
       .header("X-App-Secret", APP_SECRET)
-      .query(&[("device_id", &*DEVICE_ID.lock().unwrap())])
+      .query(&[("device_id", &device_id)])
       .send()
       .await
       .map_err(|e| format!("Auth request failed: {}", e))?;
 
-    let auth_token = response
-      .text()
-      .await
-      .map_err(|e| format!("Failed to read auth response: {}", e))?;
+    let auth_token =
+      response.text().await.map_err(|e| format!("Failed to read auth response: {}", e))?;
 
-      log_output(app.clone(), format!("Received auth token from worker"));
-      *AUTH_TOKEN.lock().unwrap() = auth_token;
+    log_output(app.clone(), "Received auth token from worker");
+    *AUTH_TOKEN.lock().unwrap() = auth_token;
   }
 
   // Use reqwest to upload to worker
@@ -53,16 +52,13 @@ pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
   let response = client
     .post("https://uiplay.luminescent.dev/upload")
     .header("Authorization", format!("Bearer {}", AUTH_TOKEN.lock().unwrap()))
-    .query(&[("device_id", &*DEVICE_ID.lock().unwrap())])
+    .query(&[("device_id", &device_id)])
     .body(album_art)
     .send()
     .await
     .map_err(|e| format!("Upload failed: {}", e))?;
 
-  let cdn_url = response
-    .text()
-    .await
-    .map_err(|e| format!("Failed to read response: {}", e))?;
+  let cdn_url = response.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
 
   if let Ok(mut cache) = ALBUM_ART_HASH.lock() {
     *cache = current_hash;

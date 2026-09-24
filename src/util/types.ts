@@ -1,7 +1,7 @@
-
 export type UiPlayStoreType = {
   Settings: {
     Name: string;
+    Provider: 'shairport' | 'uxplay';
   };
   Socket?: string;
   NowPlaying?: {
@@ -31,7 +31,7 @@ export type UiPlayStoreType = {
     UserAgent?: string;
     Audio?: {
       Format: string;
-    }
+    };
   }[];
   TerminalOpen?: boolean;
 };
