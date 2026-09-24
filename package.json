@@ -28,7 +28,7 @@
     "preview": "qwik build preview && vite preview --open",
     "start": "vite --open --mode ssr",
     "qwik": "qwik",
-    "tauri": "tauri"
+    "tauri": "NO_STRIP=1 tauri"
   },
   "devDependencies": {
     "@anuragroy/tailwindcss-animate": "^1.0.6",

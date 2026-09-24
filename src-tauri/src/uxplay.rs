@@ -1,6 +1,10 @@
-use crate::{discord::{DISCORD_STATE}, listen::{listen_to_uxplay_output, log_output}};
-use discord_rich_presence::{DiscordIpc};
+use crate::{
+  discord::DISCORD_STATE,
+  listen::{listen_to_uxplay_output, log_output},
+};
+use discord_rich_presence::DiscordIpc;
 use std::io::{BufRead, BufReader, Read};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use tauri::{Manager, path::BaseDirectory};
 
@@ -53,16 +57,8 @@ pub async fn kill_uxplay(app: tauri::AppHandle) {
 pub async fn start_uxplay(app: tauri::AppHandle) {
   kill_uxplay(app.clone()).await;
 
-  // Include both standard and multiarch paths for GStreamer plugins
-  let default_paths = [
-    "/usr/lib/gstreamer-1.0",
-    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0",
-  ];
-  let user_path = std::env::var("GST_PLUGIN_PATH").unwrap_or_default();
-  let merged = format!("{}:{}", user_path, default_paths.join(":"));
-
-  let mut child = Command::new("stdbuf")
-    .env("GST_PLUGIN_PATH", merged)
+  let mut command = Command::new("stdbuf");
+  command
     .arg("-oL")
     .arg("uxplay")
     .arg("-n")
@@ -78,9 +74,22 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
     )
     .arg("-async")
     .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-    .expect("Failed to start uxplay with stdbuf");
+    .stderr(Stdio::piped());
+
+  // AppImages prepend bundled library and GStreamer paths to the environment.
+  // Those files belong to UiPlay, not to the system-installed UxPlay. Passing
+  // them on makes UxPlay ignore or reject its matching system plugins.
+  sanitize_appimage_environment(&mut command);
+
+  // Do not override GST_PLUGIN_PATH. GStreamer already knows the correct system
+  // plugin directory, including the distribution and CPU architecture in use.
+  let mut child = match command.spawn() {
+    Ok(child) => child,
+    Err(error) => {
+      log_output(app, format!("Failed to start UxPlay: {}", error));
+      return;
+    }
+  };
 
   let stdout = child.stdout.take().expect("Failed to capture stdout");
   let app_stdout = app.clone();
@@ -98,18 +107,16 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
           }
           break;
         }
-        Ok(_) => {
-          match byte {
-            [b'\n'] | [b'\r'] => {
-              if !buffer.is_empty() {
-                let line = String::from_utf8_lossy(&buffer).to_string();
-                tauri::async_runtime::block_on(listen_to_uxplay_output(app_stdout.clone(), line));
-                buffer.clear();
-              }
+        Ok(_) => match byte {
+          [b'\n'] | [b'\r'] => {
+            if !buffer.is_empty() {
+              let line = String::from_utf8_lossy(&buffer).to_string();
+              tauri::async_runtime::block_on(listen_to_uxplay_output(app_stdout.clone(), line));
+              buffer.clear();
             }
-            [ch] => buffer.push(ch),
           }
-        }
+          [ch] => buffer.push(ch),
+        },
         Err(e) => {
           log_output(app_stdout.clone(), format!("Error reading stdout: {}", e));
           break;
@@ -130,7 +137,13 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
     }
   });
 
-  let status = child.wait().expect("Failed to wait on child");
+  let status = match child.wait() {
+    Ok(status) => status,
+    Err(error) => {
+      log_output(app.clone(), format!("Failed to wait for UxPlay: {}", error));
+      return;
+    }
+  };
   log_output(app.clone(), format!("UxPlay process exited with status: {}", status));
 
   let mut discord_state = DISCORD_STATE.lock().unwrap();
@@ -143,8 +156,47 @@ pub async fn start_uxplay(app: tauri::AppHandle) {
     *discord_state = None;
   }
 
-  log_output(app.clone(), "Trying to start uxplay again...");
-  std::thread::spawn(move || {
-    tauri::async_runtime::block_on(start_uxplay(app));
-  });
+  if !status.success() {
+    log_output(app, "UxPlay stopped after an error. Fix the error and restart it from UiPlay.");
+  }
+}
+
+fn sanitize_appimage_environment(command: &mut Command) {
+  let Some(app_dir) = std::env::var_os("APPDIR") else {
+    return;
+  };
+  let app_dir = Path::new(&app_dir);
+
+  for variable in [
+    "PATH",
+    "LD_LIBRARY_PATH",
+    "GST_PLUGIN_PATH",
+    "GST_PLUGIN_PATH_1_0",
+    "GST_PLUGIN_SYSTEM_PATH",
+    "GST_PLUGIN_SYSTEM_PATH_1_0",
+  ] {
+    remove_appimage_paths(command, variable, app_dir);
+  }
+
+  for variable in ["GST_PLUGIN_SCANNER", "GST_PLUGIN_SCANNER_1_0"] {
+    if std::env::var_os(variable).is_some_and(|path| Path::new(&path).starts_with(app_dir)) {
+      command.env_remove(variable);
+    }
+  }
+}
+
+fn remove_appimage_paths(command: &mut Command, variable: &str, app_dir: &Path) {
+  let Some(paths) = std::env::var_os(variable) else {
+    return;
+  };
+  let host_paths: Vec<_> = std::env::split_paths(&paths)
+    .filter(|path| !path.as_os_str().is_empty() && !path.starts_with(app_dir))
+    .collect();
+
+  command.env_remove(variable);
+  if !host_paths.is_empty()
+    && let Ok(joined_paths) = std::env::join_paths(host_paths)
+  {
+    command.env(variable, joined_paths);
+  }
 }
