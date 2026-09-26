@@ -1,7 +1,7 @@
 use crate::listen::{listen_to_uxplay_output, log_output};
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use tauri::{Manager, path::BaseDirectory};
 
 pub fn is_uxplay_installed() -> bool {
@@ -12,44 +12,16 @@ pub fn is_uxplay_installed() -> bool {
     .unwrap_or(false)
 }
 
-pub async fn kill_uxplay(app: tauri::AppHandle) {
-  let check = Command::new("pgrep").arg("uxplay").output();
-  let mut killed = false;
-  match check {
-    Ok(output) if !output.stdout.is_empty() => {
-      log_output(app.clone(), "UxPlay is already running, restarting...");
-      let kill = Command::new("pkill").arg("uxplay").output();
-      match kill {
-        Ok(_) => {
-          killed = true;
-          for _ in 0..10 {
-            let check_again = Command::new("pgrep").arg("uxplay").output();
-            match check_again {
-              Ok(out) if out.stdout.is_empty() => break,
-              _ => std::thread::sleep(std::time::Duration::from_millis(200)),
-            }
-          }
-        }
-        Err(e) => {
-          log_output(app.clone(), format!("Failed to kill UxPlay: {}", e));
-          return;
-        }
-      }
-    }
-    Ok(_) => {
-      log_output(app.clone(), "UxPlay is not running, starting a new instance...");
-    }
-    Err(e) => {
-      log_output(app.clone(), format!("Failed to check if UxPlay is running: {}", e));
-      return;
-    }
-  }
-  if killed {
-    log_output(app.clone(), "UxPlay process killed successfully.");
-  }
-}
+pub fn start_uxplay(app: tauri::AppHandle, name: String) -> Result<Child, String> {
+  let config_dir = app
+    .path()
+    .resolve("uiplay", BaseDirectory::Config)
+    .map_err(|error| format!("Failed to resolve the UiPlay config directory: {error}"))?;
+  let album_art = config_dir.join("albumart.png");
+  let dacp = config_dir.join("uxplay.dacp");
+  // Never reuse credentials exported by a previous AirPlay session.
+  let _ = std::fs::remove_file(&dacp);
 
-pub async fn start_uxplay(app: tauri::AppHandle, name: String) {
   let mut command = Command::new("stdbuf");
   command
     .arg("-oL")
@@ -57,14 +29,9 @@ pub async fn start_uxplay(app: tauri::AppHandle, name: String) {
     .arg("-n")
     .arg(name)
     .arg("-ca")
-    .arg(
-      app
-        .path()
-        .resolve("uiplay/albumart.png", BaseDirectory::Config)
-        .expect("Failed to resolve uiplay/albumart.png")
-        .to_string_lossy()
-        .to_string(),
-    )
+    .arg(album_art)
+    .arg("-dacp")
+    .arg(dacp)
     .arg("-async")
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
@@ -79,8 +46,7 @@ pub async fn start_uxplay(app: tauri::AppHandle, name: String) {
   let mut child = match command.spawn() {
     Ok(child) => child,
     Err(error) => {
-      log_output(app, format!("Failed to start UxPlay: {}", error));
-      return;
+      return Err(format!("Failed to start UxPlay: {error}"));
     }
   };
 
@@ -130,18 +96,7 @@ pub async fn start_uxplay(app: tauri::AppHandle, name: String) {
     }
   });
 
-  let status = match child.wait() {
-    Ok(status) => status,
-    Err(error) => {
-      log_output(app.clone(), format!("Failed to wait for UxPlay: {}", error));
-      return;
-    }
-  };
-  log_output(app.clone(), format!("UxPlay process exited with status: {}", status));
-
-  if !status.success() {
-    log_output(app, "UxPlay stopped after an error. Fix the error and restart it from UiPlay.");
-  }
+  Ok(child)
 }
 
 fn sanitize_appimage_environment(command: &mut Command) {

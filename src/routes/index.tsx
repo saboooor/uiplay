@@ -120,42 +120,43 @@ export default component$(() => {
                     </p>
                   </div>
                 )}
-              {UiPlayStore.Settings.Provider === 'shairport' && (
-                <div class="mt-5 flex items-center justify-center gap-3">
-                  <button
-                    type="button"
-                    aria-label="Previous track"
-                    title="Previous track"
-                    class="lum-btn lum-bg-transparent rounded-full p-3"
-                    onClick$={() => controlPlayback('previous')}
+              <div class="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  aria-label="Previous track"
+                  title="Previous track"
+                  class="lum-btn lum-bg-transparent rounded-full p-3"
+                  onClick$={() => controlPlayback('previous')}
+                >
+                  <SkipBack size={24} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Play or pause"
+                  title="Play or pause"
+                  class="lum-btn lum-bg-gray-700/30 rounded-full p-4"
+                  onClick$={() => controlPlayback('playpause')}
+                >
+                  <Play size={24} class="fill-current" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next track"
+                  title="Next track"
+                  class="lum-btn lum-bg-transparent rounded-full p-3"
+                  onClick$={() => controlPlayback('next')}
+                >
+                  <SkipForward size={24} />
+                </button>
+                {controlError.value && (
+                  <p
+                    class="basis-full text-center text-sm text-red-300"
+                    role="alert"
                   >
-                    <SkipBack size={24} />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Play or pause"
-                    title="Play or pause"
-                    class="lum-btn lum-bg-gray-700/30 rounded-full p-4"
-                    onClick$={() => controlPlayback('playpause')}
-                  >
-                    <Play size={24} class="fill-current" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Next track"
-                    title="Next track"
-                    class="lum-btn lum-bg-transparent rounded-full p-3"
-                    onClick$={() => controlPlayback('next')}
-                  >
-                    <SkipForward size={24} />
-                  </button>
-                  {controlError.value && (
-                    <p class="text-sm text-red-300" role="alert">
-                      {controlError.value}
-                    </p>
-                  )}
-                </div>
-              )}
+                    {controlError.value}
+                  </p>
+                )}
+              </div>
             </>
           )}
           <div class="mt-4 flex">

@@ -2,6 +2,7 @@ mod discord;
 mod events;
 mod listen;
 mod mediaplayer;
+mod mpris;
 mod settings;
 mod shairport;
 mod uxplay;
@@ -14,6 +15,7 @@ use tauri_plugin_fs::FsExt;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .manage(mediaplayer::ReceiverManager::default())
     .plugin(tauri_plugin_fs::init())
     .setup(|app| {
       // Initialize logging
@@ -35,10 +37,17 @@ pub fn run() {
       let scope = app.fs_scope();
       let _ = scope.allow_directory(&config_dir, false);
 
+      mpris::start(app.handle().clone());
+
       // Start the media player process
       if uxplay::is_uxplay_installed() || shairport::is_shairport_installed() {
         listen::log_output(app.handle().clone(), "Starting media streaming process...");
-        tauri::async_runtime::spawn(mediaplayer::start_mediaplayer(app.handle().clone()));
+        if let Err(error) = mediaplayer::start_mediaplayer(
+          app.handle().clone(),
+          app.state::<mediaplayer::ReceiverManager>(),
+        ) {
+          listen::log_output(app.handle().clone(), error);
+        }
       } else {
         listen::log_output(app.handle().clone(), "Neither Shairport-sync nor UxPlay is installed. Please install at least one of them to use UiPlay.");
         return Ok(());

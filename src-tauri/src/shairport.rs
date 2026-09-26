@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{
   Arc,
   atomic::{AtomicBool, Ordering},
@@ -22,45 +22,31 @@ pub fn is_shairport_installed() -> bool {
     .is_ok_and(|status| status.success())
 }
 
-pub async fn kill_shairport(app: tauri::AppHandle) {
-  // Shairport Sync renames its main Linux task after startup (for example to
-  // `convolver`), so matching the task name with `pgrep -x` misses a running
-  // receiver. Match its unchanged command line instead.
-  let process_pattern = r"^shairport-sync(?: |$)";
-  let check = Command::new("pgrep").args(["-f", process_pattern]).output();
-  match check {
-    Ok(output) if output.status.success() => {
-      log_output(app.clone(), "Shairport Sync is already running, restarting...");
-      match Command::new("pkill").args(["-f", process_pattern]).status() {
-        Ok(status) if status.success() => {
-          for _ in 0..10 {
-            let stopped = Command::new("pgrep")
-              .args(["-f", process_pattern])
-              .status()
-              .is_ok_and(|status| !status.success());
-            if stopped {
-              log_output(app, "Shairport Sync process killed successfully.");
-              return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
-          }
-          log_output(app, "Shairport Sync did not stop within two seconds.");
-        }
-        Ok(status) => log_output(app, format!("Failed to kill Shairport Sync: {status}")),
-        Err(error) => log_output(app, format!("Failed to kill Shairport Sync: {error}")),
-      }
+pub struct ShairportProcess {
+  pub child: Child,
+  metadata_stop: Arc<AtomicBool>,
+  metadata_pipe: PathBuf,
+  metadata_reader: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ShairportProcess {
+  pub fn stop_metadata(&mut self) {
+    self.metadata_stop.store(true, Ordering::Relaxed);
+    if let Ok(mut pipe) = OpenOptions::new().write(true).open(&self.metadata_pipe) {
+      let _ = pipe.write_all(b"\n");
     }
-    Ok(_) => log_output(app, "Shairport Sync is not running, starting a new instance..."),
-    Err(error) => log_output(app, format!("Failed to check Shairport Sync: {error}")),
+    if let Some(reader) = self.metadata_reader.take() {
+      let _ = reader.join();
+    }
   }
 }
 
-pub async fn start_shairport(app: tauri::AppHandle, name: String) {
+pub fn start_shairport(app: tauri::AppHandle, name: String) -> Result<ShairportProcess, String> {
   let config_dir = match app.path().resolve("uiplay", BaseDirectory::Config) {
     Ok(path) => path,
     Err(error) => {
       log_output(app, format!("Failed to resolve the UiPlay config directory: {error}"));
-      return;
+      return Err(format!("Failed to resolve the UiPlay config directory: {error}"));
     }
   };
   let metadata_pipe = config_dir.join("shairport-metadata");
@@ -75,11 +61,11 @@ pub async fn start_shairport(app: tauri::AppHandle, name: String) {
 "#,
   ) {
     log_output(app, format!("Failed to write the Shairport Sync configuration: {error}"));
-    return;
+    return Err(format!("Failed to write the Shairport Sync configuration: {error}"));
   }
   if let Err(error) = create_metadata_pipe(&metadata_pipe) {
     log_output(app, format!("Failed to create the Shairport metadata pipe: {error}"));
-    return;
+    return Err(format!("Failed to create the Shairport metadata pipe: {error}"));
   }
 
   // Opening both ends keeps startup deterministic: neither this reader nor
@@ -88,7 +74,7 @@ pub async fn start_shairport(app: tauri::AppHandle, name: String) {
     Ok(file) => file,
     Err(error) => {
       log_output(app, format!("Failed to open the Shairport metadata pipe: {error}"));
-      return;
+      return Err(format!("Failed to open the Shairport metadata pipe: {error}"));
     }
   };
 
@@ -106,8 +92,7 @@ pub async fn start_shairport(app: tauri::AppHandle, name: String) {
   {
     Ok(child) => child,
     Err(error) => {
-      log_output(app, format!("Failed to start Shairport Sync: {error}"));
-      return;
+      return Err(format!("Failed to start Shairport Sync: {error}"));
     }
   };
 
@@ -121,28 +106,12 @@ pub async fn start_shairport(app: tauri::AppHandle, name: String) {
     spawn_log_reader(app.clone(), stderr, "[SHAIRPORT STDERR]");
   }
 
-  let status = match child.wait() {
-    Ok(status) => status,
-    Err(error) => {
-      log_output(app, format!("Failed to wait for Shairport Sync: {error}"));
-      return;
-    }
-  };
-  log_output(app.clone(), format!("Shairport Sync exited with status: {status}"));
-  metadata_stop.store(true, Ordering::Relaxed);
-  // Wake the FIFO reader so it can observe the stop flag and terminate before
-  // a later manual restart creates another reader for the same pipe.
-  if let Ok(mut pipe) = OpenOptions::new().write(true).open(&metadata_pipe) {
-    let _ = pipe.write_all(b"\n");
-  }
-  let _ = metadata_reader.join();
-
-  if !status.success() {
-    log_output(
-      app,
-      "Shairport Sync stopped after an error. Fix the error and restart it from UiPlay.",
-    );
-  }
+  Ok(ShairportProcess {
+    child,
+    metadata_stop,
+    metadata_pipe,
+    metadata_reader: Some(metadata_reader),
+  })
 }
 
 fn create_metadata_pipe(path: &Path) -> std::io::Result<()> {

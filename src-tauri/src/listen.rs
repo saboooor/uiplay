@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Manager, path::BaseDirectory};
 
 pub static DEVICE_ID: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 pub static DEVICE_NAME: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
@@ -22,6 +22,38 @@ pub static GENRE: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::
 pub static ALBUM_ART: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 pub static AUDIO_PROGRESS: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 pub static ALBUM_ART_HASH: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
+static UXPLAY_DACP_ENDPOINT: LazyLock<Mutex<Option<CachedDacpEndpoint>>> =
+  LazyLock::new(|| Mutex::new(None));
+
+pub fn reset_session_state(app: &tauri::AppHandle) {
+  for value in [
+    &DEVICE_ID,
+    &DEVICE_NAME,
+    &CLIENT_IP,
+    &DACP_PORT,
+    &ACTIVE_REMOTE,
+    &TITLE,
+    &ARTIST,
+    &ALBUM,
+    &GENRE,
+    &ALBUM_ART,
+    &AUDIO_PROGRESS,
+  ] {
+    if let Ok(mut value) = value.lock() {
+      value.clear();
+    }
+  }
+  if let Ok(mut hash) = ALBUM_ART_HASH.lock() {
+    *hash = 0;
+  }
+  if let Ok(mut endpoint) = UXPLAY_DACP_ENDPOINT.lock() {
+    *endpoint = None;
+  }
+  for event in ["Title", "Artist", "Album", "Genre"] {
+    let _ = app.emit(event, "");
+  }
+  crate::mpris::metadata_changed();
+}
 
 static TITLE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Title: (.*)").unwrap());
 static ARTIST_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Artist: (.*)").unwrap());
@@ -39,14 +71,14 @@ pub fn log_output(app: tauri::AppHandle, output: impl Into<String>) {
   let message = output.into();
 
   println!("{}", message);
-  app.emit("app-output", &message).unwrap();
+  let _ = app.emit("app-output", &message);
 }
 
 pub async fn listen_to_uxplay_output(app: tauri::AppHandle, output: impl Into<String>) {
   let message = output.into();
 
   println!("{}", message);
-  app.emit("uxplay-output", &message).unwrap();
+  let _ = app.emit("uxplay-output", &message);
 
   // caps is the regex captures for each event type, if it matches the output
   if let Some(caps) = TITLE_REGEX.captures(&message) {
@@ -155,7 +187,33 @@ pub enum PlaybackControl {
 }
 
 #[tauri::command]
-pub async fn control_shairport(control: PlaybackControl) -> Result<(), String> {
+pub async fn control_shairport(
+  app: tauri::AppHandle,
+  control: PlaybackControl,
+) -> Result<(), String> {
+  control_playback(app, control).await
+}
+
+pub async fn control_playback(
+  app: tauri::AppHandle,
+  control: PlaybackControl,
+) -> Result<(), String> {
+  let command = match control {
+    PlaybackControl::Previous => "previtem",
+    PlaybackControl::PlayPause => "playpause",
+    PlaybackControl::Next => "nextitem",
+  };
+
+  // Both receivers ultimately use DACP. Shairport supplies the endpoint in
+  // metadata; UxPlay exports DACP-ID and Active-Remote to a structured file.
+  let dacp_error = match dacp_endpoint(&app).await {
+    Ok((host, port, active_remote)) => {
+      return send_dacp_command(&host, port, &active_remote, command).await;
+    }
+    Err(error) => error,
+  };
+
+  // Older Shairport configurations may expose controls only through D-Bus.
   let dbus_method = match control {
     PlaybackControl::Previous => "Previous",
     PlaybackControl::PlayPause => "PlayPause",
@@ -179,23 +237,20 @@ pub async fn control_shairport(control: PlaybackControl) -> Result<(), String> {
     return Ok(());
   }
 
-  let client_ip = CLIENT_IP.lock().map_err(|error| error.to_string())?.clone();
-  let dacp_port = DACP_PORT.lock().map_err(|error| error.to_string())?.clone();
-  let active_remote = ACTIVE_REMOTE.lock().map_err(|error| error.to_string())?.clone();
-  if client_ip.is_empty() || dacp_port.is_empty() || active_remote.is_empty() {
-    let mpris_error = dbus_error(mpris_result);
-    let native_error = dbus_error(native_result);
-    return Err(format!(
-      "Shairport MPRIS control failed: {mpris_error}. Native control failed: {native_error}. The source also did not provide direct control information"
-    ));
-  }
+  let mpris_error = dbus_error(mpris_result);
+  let native_error = dbus_error(native_result);
+  Err(format!(
+    "DACP control is unavailable: {dacp_error}. Shairport MPRIS control failed: {mpris_error}. Native control failed: {native_error}"
+  ))
+}
 
-  let command = match control {
-    PlaybackControl::Previous => "previtem",
-    PlaybackControl::PlayPause => "playpause",
-    PlaybackControl::Next => "nextitem",
-  };
-  let host = if client_ip.contains(':') { format!("[{client_ip}]") } else { client_ip };
+async fn send_dacp_command(
+  host: &str,
+  port: u16,
+  active_remote: &str,
+  command: &str,
+) -> Result<(), String> {
+  let url_host = if host.contains(':') { format!("[{host}]") } else { host.to_string() };
   // DACP is a LAN-only protocol. Never send its token or request through an
   // HTTP proxy inherited from the desktop environment.
   let client = reqwest::Client::builder()
@@ -204,7 +259,7 @@ pub async fn control_shairport(control: PlaybackControl) -> Result<(), String> {
     .build()
     .map_err(|error| format!("Failed to create the AirPlay control client: {error}"))?;
   let response = client
-    .get(format!("http://{host}:{dacp_port}/ctrl-int/1/{command}"))
+    .get(format!("http://{url_host}:{port}/ctrl-int/1/{command}"))
     .header("Active-Remote", active_remote)
     .header("Connection", "close")
     .send()
@@ -216,6 +271,131 @@ pub async fn control_shairport(control: PlaybackControl) -> Result<(), String> {
   } else {
     Err(format!("AirPlay source rejected the command with status {}", response.status()))
   }
+}
+
+async fn dacp_endpoint(app: &tauri::AppHandle) -> Result<(String, u16, String), String> {
+  let client_ip = CLIENT_IP.lock().map_err(|error| error.to_string())?.clone();
+  let port = DACP_PORT.lock().map_err(|error| error.to_string())?.parse::<u16>().ok();
+  let shairport_remote = ACTIVE_REMOTE.lock().map_err(|error| error.to_string())?.clone();
+  if !client_ip.is_empty()
+    && let Some(port) = port
+    && !shairport_remote.is_empty()
+  {
+    return Ok((client_ip, port, shairport_remote));
+  }
+
+  let path = app
+    .path()
+    .resolve("uiplay/uxplay.dacp", BaseDirectory::Config)
+    .map_err(|error| error.to_string())?;
+  let contents = std::fs::read_to_string(path)
+    .map_err(|error| format!("UxPlay has not exported DACP credentials: {error}"))?;
+  let credentials = parse_uxplay_dacp(&contents)?;
+  if let Ok(cache) = UXPLAY_DACP_ENDPOINT.lock()
+    && let Some(endpoint) = cache.as_ref()
+    && endpoint.dacp_id == credentials.dacp_id
+    && endpoint.active_remote == credentials.active_remote
+  {
+    return Ok((endpoint.host.clone(), endpoint.port, endpoint.active_remote.clone()));
+  }
+  let service_name = format!("iTunes_Ctrl_{}", credentials.dacp_id);
+  let endpoint = tauri::async_runtime::spawn_blocking(move || resolve_dacp_service(&service_name))
+    .await
+    .map_err(|error| format!("DACP resolver task failed: {error}"))??;
+  if let Ok(mut cache) = UXPLAY_DACP_ENDPOINT.lock() {
+    *cache = Some(CachedDacpEndpoint {
+      dacp_id: credentials.dacp_id,
+      active_remote: credentials.active_remote.clone(),
+      host: endpoint.0.clone(),
+      port: endpoint.1,
+    });
+  }
+  Ok((endpoint.0, endpoint.1, credentials.active_remote))
+}
+
+struct CachedDacpEndpoint {
+  dacp_id: String,
+  active_remote: String,
+  host: String,
+  port: u16,
+}
+
+struct DacpCredentials {
+  dacp_id: String,
+  active_remote: String,
+}
+
+fn parse_uxplay_dacp(contents: &str) -> Result<DacpCredentials, String> {
+  let mut dacp_id = None;
+  let mut active_remote = None;
+  let lines: Vec<_> = contents.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+  for line in &lines {
+    if let Some((key, value)) = line.split_once([':', '=']) {
+      match key.trim().to_ascii_lowercase().as_str() {
+        "dacp-id" => dacp_id = Some(value.trim().to_string()),
+        "active-remote" => active_remote = Some(value.trim().to_string()),
+        _ => {}
+      }
+    }
+  }
+  // UxPlay 1.73 exports two bare lines: DACP-ID followed by Active-Remote.
+  if dacp_id.is_none() && active_remote.is_none() && lines.len() >= 2 {
+    dacp_id = Some(lines[0].to_string());
+    active_remote = Some(lines[1].to_string());
+  }
+  match (dacp_id, active_remote) {
+    (Some(dacp_id), Some(active_remote)) if !dacp_id.is_empty() && !active_remote.is_empty() => {
+      Ok(DacpCredentials { dacp_id, active_remote })
+    }
+    _ => Err("UxPlay's DACP export is incomplete".into()),
+  }
+}
+
+fn resolve_dacp_service(service_name: &str) -> Result<(String, u16), String> {
+  let output = Command::new("avahi-browse")
+    .args(["--resolve", "--cache", "--parsable", "--no-db-lookup", "_dacp._tcp"])
+    .output()
+    .map_err(|error| format!("Failed to run avahi-browse: {error}"))?;
+  if !output.status.success() {
+    return Err(format!("avahi-browse failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+  }
+  parse_avahi_dacp_output(&String::from_utf8_lossy(&output.stdout), service_name)
+}
+
+fn parse_avahi_dacp_output(output: &str, service_name: &str) -> Result<(String, u16), String> {
+  for line in output.lines() {
+    let fields: Vec<_> = line.split(';').collect();
+    if fields.first() == Some(&"=")
+      && fields.get(3) == Some(&service_name)
+      && fields.get(4) == Some(&"_dacp._tcp")
+      && let (Some(address), Some(port)) = (fields.get(7), fields.get(8))
+      && let Ok(port) = port.parse()
+    {
+      return Ok((unescape_avahi_field(address), port));
+    }
+  }
+  Err(format!("DACP service {service_name} was not found"))
+}
+
+fn unescape_avahi_field(value: &str) -> String {
+  let bytes = value.as_bytes();
+  let mut result = String::with_capacity(value.len());
+  let mut index = 0;
+  while index < bytes.len() {
+    if bytes[index] == b'\\'
+      && index + 3 < bytes.len()
+      && bytes[index + 1..index + 4].iter().all(u8::is_ascii_digit)
+    {
+      let number =
+        (bytes[index + 1] - b'0') * 100 + (bytes[index + 2] - b'0') * 10 + bytes[index + 3] - b'0';
+      result.push(number as char);
+      index += 4;
+    } else {
+      result.push(bytes[index] as char);
+      index += 1;
+    }
+  }
+  result
 }
 
 fn send_dbus_control(
@@ -295,6 +475,47 @@ mod tests {
     assert_eq!(
       shairport_progress_message("4294085295/1763999/4410999").as_deref(),
       Some("audio progress (min:sec): 1:00; remaining: 1:00; track length 2:00")
+    );
+  }
+
+  #[test]
+  fn parses_uxplay_dacp_export() {
+    let credentials = parse_uxplay_dacp("A1B2C3D4\n123456789\n").unwrap();
+    assert_eq!(credentials.dacp_id, "A1B2C3D4");
+    assert_eq!(credentials.active_remote, "123456789");
+  }
+
+  #[test]
+  fn parses_labeled_uxplay_dacp_export() {
+    let credentials = parse_uxplay_dacp("DACP-ID: A1B2C3D4\nActive-Remote: 123456789\n").unwrap();
+    assert_eq!(credentials.dacp_id, "A1B2C3D4");
+    assert_eq!(credentials.active_remote, "123456789");
+  }
+
+  #[test]
+  fn parses_uxplay_dacp_export_with_equals() {
+    let credentials = parse_uxplay_dacp("DACP-ID=A1B2C3D4\nActive-Remote=123456789\n").unwrap();
+    assert_eq!(credentials.dacp_id, "A1B2C3D4");
+    assert_eq!(credentials.active_remote, "123456789");
+  }
+
+  #[test]
+  fn rejects_incomplete_uxplay_dacp_export() {
+    assert!(parse_uxplay_dacp("DACP-ID: A1B2C3D4\n").is_err());
+  }
+
+  #[test]
+  fn unescapes_avahi_fields() {
+    assert_eq!(unescape_avahi_field("iTunes\\032Control"), "iTunes Control");
+  }
+
+  #[test]
+  fn parses_avahi_dacp_endpoint() {
+    let output =
+      "=;wlan0;IPv6;iTunes_Ctrl_A1B2C3D4;_dacp._tcp;local;phone.local;192.168.2.99;51197;\n";
+    assert_eq!(
+      parse_avahi_dacp_output(output, "iTunes_Ctrl_A1B2C3D4").unwrap(),
+      ("192.168.2.99".into(), 51197)
     );
   }
 }

@@ -13,6 +13,7 @@ pub fn album(app: tauri::AppHandle, caps: regex::Captures<'_>) {
   }
 
   // set discord activity
-  app.emit("Album", &album).unwrap();
+  let _ = app.emit("Album", &album);
   discord::set_discord_activity();
+  crate::mpris::metadata_changed();
 }

@@ -13,6 +13,7 @@ pub fn title(app: tauri::AppHandle, caps: regex::Captures<'_>) {
   }
 
   // set discord activity
-  app.emit("Title", &title).unwrap();
+  let _ = app.emit("Title", &title);
   discord::set_discord_activity();
+  crate::mpris::metadata_changed();
 }

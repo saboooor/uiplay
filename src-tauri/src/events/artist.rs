@@ -13,6 +13,7 @@ pub fn artist(app: tauri::AppHandle, caps: regex::Captures<'_>) {
   }
 
   // set discord activity
-  app.emit("Artist", &artist).unwrap();
+  let _ = app.emit("Artist", &artist);
   discord::set_discord_activity();
+  crate::mpris::metadata_changed();
 }

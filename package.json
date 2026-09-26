@@ -23,8 +23,8 @@
     "build": "qwik build",
     "build.client": "vp build",
     "build.preview": "vp build --ssr src/entry.preview.tsx",
-    "build.server": "vp build -c adapters/static/vite.config.ts",
-    "build.tauri": "vp build -c adapters/static/vite.config.ts",
+    "build.server": "qwik check-client src dist && vp build -c adapters/ssg/vite.config.ts",
+    "build.tauri": "vp build -c adapters/ssg/vite.config.ts",
     "build.types": "tsc --incremental --noEmit",
     "deploy": "echo 'Run \"npm run qwik add\" to install a server adapter'",
     "dev": "vp dev --mode ssr",
@@ -32,11 +32,11 @@
     "fmt": "prettier --write .",
     "fmt.check": "prettier --check .",
     "lint": "vp lint",
+    "prepare": "vp config",
     "preview": "qwik build preview && vp preview --open",
     "start": "vp dev --open --mode ssr",
-    "qwik": "qwik",
     "tauri": "NO_STRIP=1 tauri",
-    "prepare": "vp config"
+    "qwik": "qwik"
   },
   "devDependencies": {
     "@anuragroy/tailwindcss-animate": "^1.0.6",
@@ -62,11 +62,11 @@
     "ts-morph": "28",
     "typescript": "7.0.2",
     "undici": "^8.11.2",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9",
-    "vite-plus": "0.2.9",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0-rc.1",
+    "vite-plus": "1.0.0-rc.1",
     "vite-tsconfig-paths": "^6.1.1"
   },
   "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0-rc.1"
   }
 }

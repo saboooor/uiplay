@@ -11,5 +11,6 @@ pub fn genre(app: tauri::AppHandle, caps: regex::Captures<'_>) {
     *cache = genre.clone();
   }
 
-  app.emit("Genre", &genre).unwrap();
+  let _ = app.emit("Genre", &genre);
+  crate::mpris::metadata_changed();
 }

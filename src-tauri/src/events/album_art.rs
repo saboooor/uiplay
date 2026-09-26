@@ -70,6 +70,7 @@ pub async fn album_art(app: tauri::AppHandle) -> Result<(), String> {
 
   // set discord activity
   discord::set_discord_activity();
+  crate::mpris::metadata_changed();
 
   Ok(())
 }
