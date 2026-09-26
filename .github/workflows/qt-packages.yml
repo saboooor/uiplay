@@ -1,0 +1,101 @@
+name: Qt packages
+
+on:
+  push:
+    branches: [master]
+    tags: ['qt-v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    name: AppImage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgl1-mesa-dev libfuse2 file patchelf
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          cache: true
+          archives: 'qtbase qtdeclarative qtshadertools qtsvg qtwayland'
+      - name: Build AppImage
+        run: bash qt/packaging/build-appimage.sh
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-appimage
+          path: qt/build-appimage/UiPlay-1.0.0-alpha.1-x86_64.AppImage
+          if-no-files-found: error
+
+  debian:
+    name: Debian package
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: >-
+          apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
+          build-essential cmake ninja-build dpkg-dev file
+          qt6-base-dev qt6-declarative-dev qt6-shadertools-dev
+      - name: Configure and build
+        run: cmake -S qt -B qt/build-deb -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Create Debian package
+        run: cmake --build qt/build-deb --parallel && cd qt/build-deb && cpack -G DEB
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-deb
+          path: qt/build-deb/*.deb
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Flatpak tooling
+        run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder
+      - name: Install KDE runtime
+        run: |
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.kde.Platform//6.8 org.kde.Sdk//6.8
+      - name: Build Flatpak repository
+        run: flatpak-builder --force-clean --repo=qt/flatpak-repo qt/flatpak-build qt/packaging/ca.saboor.uiplay.yml
+      - name: Create Flatpak bundle
+        run: flatpak build-bundle qt/flatpak-repo qt/UiPlay-1.0.0-alpha.1-x86_64.flatpak ca.saboor.uiplay
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-flatpak
+          path: qt/UiPlay-1.0.0-alpha.1-x86_64.flatpak
+          if-no-files-found: error
+
+  prerelease:
+    name: Publish prerelease
+    if: startsWith(github.ref, 'refs/tags/qt-v')
+    needs: [appimage, debian, flatpak]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: qt-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          release-assets/*
+          --title "UiPlay 1.0.0 alpha 1"
+          --notes "Native Qt alpha release. Choose the AppImage, Flatpak bundle, or Debian package."
+          --prerelease

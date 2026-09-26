@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=UiPlay
+Comment=AirPlay receiver with MPRIS and Discord Rich Presence
+Exec=uiplay-qt
+Icon=ca.saboor.uiplay
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupNotify=true
+StartupWMClass=ca.saboor.uiplay

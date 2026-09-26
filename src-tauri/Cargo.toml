@@ -4,7 +4,7 @@ version = "0.6.0"
 description = "UiPlay"
 authors = ["saboooor"]
 license = ""
-repository = "https://github.com/LuminescentDev/uiplay.git"
+repository = "https://github.com/saboooor/uiplay.git"
 edition = "2024"
 rust-version = "1.96.0"
 

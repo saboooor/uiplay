@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/LuminescentDev/uiplay.git"
+    "url": "git+https://github.com/saboooor/uiplay.git"
   },
   "engines": {
     "node": ">=21.0.0"

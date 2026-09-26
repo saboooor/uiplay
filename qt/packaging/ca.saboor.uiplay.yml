@@ -1,0 +1,30 @@
+app-id: ca.saboor.uiplay
+runtime: org.kde.Platform
+runtime-version: '6.8'
+sdk: org.kde.Sdk
+command: uiplay-qt
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --own-name=org.mpris.MediaPlayer2.UiPlay
+  - --talk-name=org.mpris.MediaPlayer2.ShairportSync
+  - --talk-name=org.gnome.ShairportSync
+  - --talk-name=org.freedesktop.Avahi
+  - --talk-name=org.freedesktop.Flatpak
+  - --filesystem=xdg-run/discord-ipc-0
+
+modules:
+  - name: uiplay
+    buildsystem: cmake-ninja
+    subdir: qt
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_PREFIX=/app
+    sources:
+      - type: dir
+        path: ../..

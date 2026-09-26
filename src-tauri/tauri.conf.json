@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "UiPlay",
   "version": "0.6.0",
-  "identifier": "dev.luminescent.uiplay",
+  "identifier": "ca.saboor.uiplay",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",

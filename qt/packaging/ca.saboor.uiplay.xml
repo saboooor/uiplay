@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ca.saboor.uiplay</id>
+  <name>UiPlay</name>
+  <summary>AirPlay receiver with native media integration</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <description>
+    <p>UiPlay wraps UxPlay or Shairport Sync in a native Qt interface and publishes playback metadata through MPRIS and Discord Rich Presence.</p>
+  </description>
+  <launchable type="desktop-id">ca.saboor.uiplay.desktop</launchable>
+  <provides>
+    <binary>uiplay-qt</binary>
+  </provides>
+  <releases>
+    <release version="1.0.0-alpha.1" date="2026-09-26">
+      <description><p>Initial alpha release of the native Qt application.</p></description>
+    </release>
+  </releases>
+</component>

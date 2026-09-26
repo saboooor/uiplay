@@ -23,6 +23,19 @@ bun install
 bun tauri build
 ```
 
+### Native Qt application
+
+An in-progress native Qt 6 / Qt Quick port lives in [`qt/`](qt/). It can be
+built without Bun, Qwik, or Tauri:
+
+```bash
+cmake -S qt -B qt/build -DCMAKE_BUILD_TYPE=Release
+cmake --build qt/build
+./qt/build/uiplay-qt
+```
+
+See [`qt/README.md`](qt/README.md) for its current feature-parity status.
+
 ## Static Site Generator (Node.js)
 
 Be sure to configure your server to serve very long cache headers for the `build/**/*.js` files.
