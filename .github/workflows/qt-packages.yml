@@ -89,10 +89,31 @@ jobs:
           path: qt/UiPlay-${{ env.UIPLAY_VERSION }}-x86_64.flatpak
           if-no-files-found: error
 
+  pacman:
+    name: Arch Linux package
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: >-
+          pacman -Syu --noconfirm --needed
+          git cmake ninja qt6-base qt6-declarative qt6-shadertools
+      - uses: actions/checkout@v4
+      - name: Build pacman package
+        run: bash qt/packaging/build-pacman.sh
+      - name: Validate pacman package
+        run: pacman -Qip qt/build-pacman/*.pkg.tar.zst
+      - name: Upload pacman package
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-pacman
+          path: qt/build-pacman/*.pkg.tar.zst
+          if-no-files-found: error
+
   prerelease:
     name: Publish prerelease
     if: startsWith(github.ref, 'refs/tags/qt-v')
-    needs: [appimage, debian, flatpak]
+    needs: [appimage, debian, flatpak, pacman]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -109,5 +130,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}"
           release-assets/*
           --title "UiPlay 1.0.0 alpha"
-          --notes "Native Qt alpha release. Choose the AppImage, Flatpak bundle, or Debian package."
+          --notes "Native Qt alpha release. Choose the AppImage, Flatpak bundle, Debian package, or Arch Linux pacman package."
           --prerelease

@@ -38,12 +38,13 @@ Qt settings file or application logs.
 
 ## Packages
 
-The release workflow produces three Linux formats for version
+The release workflow produces four Linux formats for version
 `1.0.0-alpha`:
 
 - `UiPlay-1.0.0-alpha-x86_64.AppImage`
 - `uiplay-qt_1.0.0~alpha_amd64.deb`
 - `UiPlay-1.0.0-alpha-x86_64.flatpak`
+- `uiplay-qt-1.0.0_alpha-1-x86_64.pkg.tar.zst`
 
 Create a `qt-v1.0.0-alpha` tag to publish them together as a GitHub
 prerelease. Branch, pull-request, and manually dispatched builds upload the

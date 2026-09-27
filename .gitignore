@@ -8,6 +8,7 @@
 /qt/flatpak-build
 /qt/flatpak-repo
 /qt/*.flatpak
+/qt/*.pkg.tar.zst
 
 # Development
 node_modules
