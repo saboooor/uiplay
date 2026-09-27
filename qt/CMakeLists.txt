@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(UiPlayQt VERSION 1.0.0 LANGUAGES CXX)
 
-set(UIPLAY_VERSION "1.0.0-alpha.1")
+set(UIPLAY_VERSION "1.0.0-alpha")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -51,8 +51,9 @@ install(TARGETS uiplay-qt
 install(FILES packaging/ca.saboor.uiplay.desktop
     DESTINATION share/applications
 )
-install(FILES packaging/ca.saboor.uiplay.metainfo.xml
+install(FILES packaging/ca.saboor.uiplay.xml
     DESTINATION share/metainfo
+    RENAME ca.saboor.uiplay.metainfo.xml
 )
 install(FILES ../src-tauri/icons/icon.png
     DESTINATION share/icons/hicolor/512x512/apps
@@ -67,7 +68,7 @@ set(CPACK_PACKAGE_VERSION "${UIPLAY_VERSION}")
 set(CPACK_PACKAGE_FILE_NAME "uiplay-qt-${UIPLAY_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_PACKAGE_NAME "uiplay-qt")
-set(CPACK_DEBIAN_PACKAGE_VERSION "1.0.0~alpha1")
+set(CPACK_DEBIAN_PACKAGE_VERSION "1.0.0~alpha")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_SECTION "sound")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)

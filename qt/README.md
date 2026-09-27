@@ -39,13 +39,13 @@ Qt settings file or application logs.
 ## Packages
 
 The release workflow produces three Linux formats for version
-`1.0.0-alpha.1`:
+`1.0.0-alpha`:
 
-- `UiPlay-1.0.0-alpha.1-x86_64.AppImage`
-- `uiplay-qt_1.0.0~alpha1_amd64.deb`
-- `UiPlay-1.0.0-alpha.1-x86_64.flatpak`
+- `UiPlay-1.0.0-alpha-x86_64.AppImage`
+- `uiplay-qt_1.0.0~alpha_amd64.deb`
+- `UiPlay-1.0.0-alpha-x86_64.flatpak`
 
-Create a `qt-v1.0.0-alpha.1` tag to publish them together as a GitHub
+Create a `qt-v1.0.0-alpha` tag to publish them together as a GitHub
 prerelease. Branch, pull-request, and manually dispatched builds upload the
 same files as workflow artifacts without creating a release. Flatpak launches
 the host's installed `shairport-sync` or `uxplay` through

@@ -4,6 +4,10 @@
 /lib-types
 /server
 /qt/build
+/qt/build-*
+/qt/flatpak-build
+/qt/flatpak-repo
+/qt/*.flatpak
 
 # Development
 node_modules

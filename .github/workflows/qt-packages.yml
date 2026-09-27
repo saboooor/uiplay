@@ -1,5 +1,8 @@
 name: Qt packages
 
+env:
+  UIPLAY_VERSION: 1.0.0-alpha
+
 on:
   push:
     branches: [master]
@@ -26,11 +29,20 @@ jobs:
           archives: 'qtbase qtdeclarative qtshadertools qtsvg qtwayland'
       - name: Build AppImage
         run: bash qt/packaging/build-appimage.sh
+      - name: Smoke-test AppImage
+        run: |
+          set +e
+          QT_QPA_PLATFORM=offscreen APPIMAGE_EXTRACT_AND_RUN=1 \
+            timeout --signal=KILL 8s \
+            "qt/build-appimage/UiPlay-${UIPLAY_VERSION}-x86_64.AppImage"
+          status=$?
+          set -e
+          test "$status" -eq 124 -o "$status" -eq 137
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
           name: qt-appimage
-          path: qt/build-appimage/UiPlay-1.0.0-alpha.1-x86_64.AppImage
+          path: qt/build-appimage/UiPlay-${{ env.UIPLAY_VERSION }}-x86_64.AppImage
           if-no-files-found: error
 
   debian:
@@ -69,12 +81,12 @@ jobs:
       - name: Build Flatpak repository
         run: flatpak-builder --force-clean --repo=qt/flatpak-repo qt/flatpak-build qt/packaging/ca.saboor.uiplay.yml
       - name: Create Flatpak bundle
-        run: flatpak build-bundle qt/flatpak-repo qt/UiPlay-1.0.0-alpha.1-x86_64.flatpak ca.saboor.uiplay
+        run: flatpak build-bundle qt/flatpak-repo "qt/UiPlay-${UIPLAY_VERSION}-x86_64.flatpak" ca.saboor.uiplay
       - name: Upload Flatpak bundle
         uses: actions/upload-artifact@v4
         with:
           name: qt-flatpak
-          path: qt/UiPlay-1.0.0-alpha.1-x86_64.flatpak
+          path: qt/UiPlay-${{ env.UIPLAY_VERSION }}-x86_64.flatpak
           if-no-files-found: error
 
   prerelease:
@@ -96,6 +108,6 @@ jobs:
         run: >-
           gh release create "${GITHUB_REF_NAME}"
           release-assets/*
-          --title "UiPlay 1.0.0 alpha 1"
+          --title "UiPlay 1.0.0 alpha"
           --notes "Native Qt alpha release. Choose the AppImage, Flatpak bundle, or Debian package."
           --prerelease
