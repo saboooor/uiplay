@@ -12,6 +12,40 @@ ApplicationWindow {
     visible: true
     title: qsTr("UiPlay")
     readonly property bool portraitLayout: width < height
+    readonly property real bassLevel: Math.max(
+        appController.visualizerLevels[0] || 0,
+        appController.visualizerLevels[1] || 0,
+        appController.visualizerLevels[2] || 0)
+    property bool devicePanelOpen: false
+    palette.highlight: appController.accentColor
+
+    component PlaybackVisualizer: Item {
+        implicitWidth: 150
+        implicitHeight: 38
+
+        Row {
+            anchors.fill: parent
+            spacing: 5
+
+            Repeater {
+                model: 12
+                Rectangle {
+                    id: visualizerBar
+                    required property int index
+                    width: 7
+                    height: parent.height * (0.08 + 0.92 * (appController.visualizerLevels[index] || 0))
+                    anchors.bottom: parent.bottom
+                    radius: width / 2
+                    color: root.palette.highlight
+                    opacity: 0.55 + (index % 4) * 0.1
+
+                    Behavior on height {
+                        NumberAnimation { duration: 35; easing.type: Easing.OutCubic }
+                    }
+                }
+            }
+        }
+    }
 
     background: Item {
         clip: true
@@ -19,47 +53,80 @@ ApplicationWindow {
         Item {
             id: outerBlurLayer
             anchors.fill: parent
-            opacity: 0.42
+            opacity: 0.54
             visible: appController.albumArt !== ""
             layer.enabled: visible
             layer.smooth: true
             layer.effect: MultiEffect {
                 blurEnabled: true
                 blur: 1.0
-                blurMax: 64
+                blurMax: 72
             }
 
             Item {
-                id: albumCloud
+                id: blendedArtwork
                 anchors.fill: parent
+                anchors.margins: -Math.max(root.width, root.height) * 0.16
+                scale: 1.08
                 layer.enabled: outerBlurLayer.visible
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     blurEnabled: true
                     blur: 1.0
-                    blurMax: 64
-                    saturation: 1.35
+                    blurMax: 96
+                    saturation: 1.14
+                    contrast: 0.04
                 }
 
-                Repeater {
-                    model: 4
-                    Image {
-                        required property int index
-                        width: Math.max(root.width, root.height) * 0.82
-                        height: width
-                        x: index % 2 === 0 ? -width * 0.30 : root.width - width * 0.70
-                        y: index < 2 ? -height * 0.34 : root.height - height * 0.66
-                        source: appController.albumArt
-                        fillMode: Image.PreserveAspectCrop
-                        transformOrigin: Item.Center
-                        NumberAnimation on rotation {
-                            from: index % 2 === 0 ? 0 : 360
-                            to: index % 2 === 0 ? 360 : 0
-                            duration: 40000
-                            loops: Animation.Infinite
-                            running: appController.albumArt !== ""
-                        }
+                Image {
+                    id: backgroundArtworkSource
+                    anchors.fill: parent
+                    source: appController.albumArt
+                    fillMode: Image.PreserveAspectCrop
+                    sourceSize.width: 640
+                    sourceSize.height: 640
+                    visible: false
+                }
+
+                ShaderEffect {
+                    anchors.fill: parent
+                    property variant source: backgroundArtworkSource
+                    property real time: 0.0
+                    property real bass: root.bassLevel
+                    fragmentShader: "qrc:/shaders/blended_background.frag.qsb"
+
+                    Behavior on bass {
+                        NumberAnimation { duration: 55; easing.type: Easing.OutCubic }
                     }
+
+                    NumberAnimation on time {
+                        from: 0.0
+                        to: 100.0
+                        duration: 240000
+                        loops: Animation.Infinite
+                        running: outerBlurLayer.visible
+                    }
+                }
+
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            visible: appController.albumArt !== ""
+            opacity: 0.20
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop {
+                    position: 0.0
+                    color: Qt.rgba(appController.accentColor.r, appController.accentColor.g,
+                                   appController.accentColor.b, 0.9)
+                }
+                GradientStop { position: 0.48; color: "transparent" }
+                GradientStop {
+                    position: 1.0
+                    color: Qt.rgba(root.palette.window.r, root.palette.window.g,
+                                   root.palette.window.b, 0.8)
                 }
             }
         }
@@ -67,53 +134,57 @@ ApplicationWindow {
         Rectangle {
             anchors.fill: parent
             color: root.palette.window
-            opacity: appController.albumArt === "" ? 1.0 : 0.76
-        }
-    }
-
-    header: ToolBar {
-        RowLayout {
-            anchors.fill: parent
-            Label { text: qsTr("UiPlay"); font.bold: true; Layout.leftMargin: 12; Layout.fillWidth: true }
-            ToolButton {
-                icon.name: "utilities-terminal"
-                text: qsTr("Terminal")
-                display: AbstractButton.IconOnly
-                onClicked: terminalDialog.open()
-                ToolTip.text: text
-                ToolTip.visible: hovered
-            }
-            ToolButton {
-                icon.name: "settings-configure"
-                text: qsTr("Settings")
-                display: AbstractButton.IconOnly
-                onClicked: settingsDialog.open()
-                ToolTip.text: text
-                ToolTip.visible: hovered
-                Layout.rightMargin: 6
-            }
+            opacity: appController.albumArt === "" ? 1.0 : 0.58
         }
     }
 
     Page {
+        id: mainPage
         anchors.fill: parent
         padding: 32
         background: null
 
         Rectangle {
             id: contentSurface
-            anchors.centerIn: parent
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: Math.max(playbackVisualizer.visible ? playbackVisualizer.height + 32 : 20,
+                        (parent.height - height
+                             - (root.devicePanelOpen ? deviceSurface.height + 12 : 0)) / 2)
             width: Math.min(parent.width - 40, 850)
-            height: Math.min(parent.height - 40, Math.max(310, contentLayout.implicitHeight + 48))
+            height: root.portraitLayout
+                    ? Math.max(310, contentLayout.implicitHeight + 48)
+                    : Math.min(parent.height - 40, 430)
             radius: 22
-            color: Qt.rgba(root.palette.window.r, root.palette.window.g, root.palette.window.b, 0.88)
-            border.color: Qt.rgba(root.palette.mid.r, root.palette.mid.g, root.palette.mid.b, 0.45)
+            color: Qt.rgba(root.palette.window.r, root.palette.window.g, root.palette.window.b, 0.38)
+            border.color: Qt.rgba(root.palette.mid.r, root.palette.mid.g, root.palette.mid.b, 0.28)
             border.width: 1
+
+            ToolButton {
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 12
+                visible: !root.devicePanelOpen
+                icon.name: "go-down"
+                text: qsTr("Show devices and settings")
+                display: AbstractButton.IconOnly
+                onClicked: root.devicePanelOpen = true
+                ToolTip.text: text
+                ToolTip.visible: hovered
+            }
+        }
+
+        PlaybackVisualizer {
+            id: playbackVisualizer
+            anchors.horizontalCenter: contentSurface.horizontalCenter
+            anchors.bottom: contentSurface.top
+            anchors.bottomMargin: 12
+            visible: appController.title !== ""
+            z: contentSurface.z + 1
         }
 
         ColumnLayout {
             id: contentLayout
-            anchors.centerIn: parent
+            anchors.centerIn: contentSurface
             width: contentSurface.width - 48
             spacing: 24
 
@@ -137,37 +208,34 @@ ApplicationWindow {
                 columnSpacing: 32
                 rowSpacing: 20
                 Layout.fillWidth: true
+
                 Item {
+                    readonly property real artExtent: Math.max(1, root.portraitLayout
+                                                               ? contentSurface.width - 48
+                                                               : contentSurface.height - 48)
                     Image {
-                        id: albumImage
+                        id: coverSource
                         anchors.fill: parent
                         source: appController.albumArt
-                        sourceSize.width: 360
-                        sourceSize.height: 360
                         fillMode: Image.PreserveAspectCrop
-                        visible: false
+                        asynchronous: true
+                        cache: true
                     }
-                    Rectangle {
-                        id: albumMask
+                    ShaderEffectSource {
+                        id: coverTexture
                         anchors.fill: parent
-                        radius: 18
-                        visible: false
-                        layer.enabled: true
+                        sourceItem: coverSource
+                        hideSource: true
+                        live: true
                     }
-                    MultiEffect {
+                    ShaderEffect {
                         anchors.fill: parent
-                        source: albumImage
-                        maskEnabled: true
-                        maskSource: albumMask
-                        shadowEnabled: true
-                        shadowBlur: 0.8
-                        shadowOpacity: 0.35
-                        shadowVerticalOffset: 5
+                        property variant source: coverTexture
+                        property real cornerRadius: 24 / Math.max(1, width)
+                        fragmentShader: "qrc:/shaders/rounded_cover.frag.qsb"
                     }
-                    Layout.preferredWidth: root.portraitLayout
-                                           ? Math.min(280, contentSurface.width * 0.62)
-                                           : Math.min(320, root.width * 0.36)
-                    Layout.preferredHeight: Layout.preferredWidth
+                    Layout.preferredWidth: artExtent
+                    Layout.preferredHeight: artExtent
                     Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                 }
                 ColumnLayout {
@@ -199,6 +267,10 @@ ApplicationWindow {
                         Layout.alignment: Qt.AlignHCenter
                         ToolButton {
                             icon.name: "media-skip-backward"
+                            icon.width: 28
+                            icon.height: 28
+                            implicitWidth: 54
+                            implicitHeight: 54
                             text: qsTr("Previous")
                             display: AbstractButton.IconOnly
                             onClicked: appController.playbackControl("previous")
@@ -206,8 +278,12 @@ ApplicationWindow {
                             ToolTip.visible: hovered
                         }
                         ToolButton {
-                            icon.name: "media-playback-start"
-                            text: qsTr("Play or pause")
+                            icon.name: appController.playing ? "media-playback-pause" : "media-playback-start"
+                            icon.width: 34
+                            icon.height: 34
+                            implicitWidth: 64
+                            implicitHeight: 64
+                            text: appController.playing ? qsTr("Pause") : qsTr("Play")
                             display: AbstractButton.IconOnly
                             onClicked: appController.playbackControl("playpause")
                             ToolTip.text: text
@@ -215,6 +291,10 @@ ApplicationWindow {
                         }
                         ToolButton {
                             icon.name: "media-skip-forward"
+                            icon.width: 28
+                            icon.height: 28
+                            implicitWidth: 54
+                            implicitHeight: 54
                             text: qsTr("Next")
                             display: AbstractButton.IconOnly
                             onClicked: appController.playbackControl("next")
@@ -222,50 +302,169 @@ ApplicationWindow {
                             ToolTip.visible: hovered
                         }
                     }
+                    Label {
+                        text: appController.playing ? qsTr("Playing") : qsTr("Paused")
+                        color: appController.playing ? palette.highlight : palette.mid
+                        font.bold: true
+                        font.pixelSize: 11
+                        Layout.alignment: Qt.AlignHCenter
+                    }
                 }
             }
 
             Rectangle {
-                visible: appController.devices.length > 0
-                Layout.fillWidth: true
-                implicitHeight: deviceLayout.implicitHeight + 32
-                radius: 14
-                color: Qt.rgba(root.palette.base.r, root.palette.base.g, root.palette.base.b, 0.60)
-                border.color: Qt.rgba(root.palette.mid.r, root.palette.mid.g, root.palette.mid.b, 0.35)
+                id: deviceSurface
+                parent: contentSurface
+                x: 0
+                y: contentSurface.height + 12
+                width: contentSurface.width
+                visible: root.devicePanelOpen
+                implicitHeight: deviceLayout.implicitHeight + 28
+                radius: 18
+                color: Qt.rgba(root.palette.window.r, root.palette.window.g, root.palette.window.b, 0.58)
+                border.color: Qt.rgba(root.palette.mid.r, root.palette.mid.g, root.palette.mid.b, 0.28)
                 ColumnLayout {
                     id: deviceLayout
                     anchors.fill: parent
-                    anchors.margins: 16
-                    Label { text: qsTr("Connected devices"); font.bold: true }
+                    anchors.margins: 14
+                    spacing: 10
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: qsTr("AirPlay devices")
+                            font.bold: true
+                            font.pixelSize: 15
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            text: appController.devices.length === 0
+                                  ? qsTr("Waiting")
+                                  : qsTr("%1 known").arg(appController.devices.length)
+                            opacity: 0.55
+                            font.pixelSize: 12
+                        }
+                        ToolButton {
+                            icon.name: "go-up"
+                            text: qsTr("Hide device panel")
+                            display: AbstractButton.IconOnly
+                            onClicked: root.devicePanelOpen = false
+                            ToolTip.text: text
+                            ToolTip.visible: hovered
+                        }
+                    }
+
                     Repeater {
                         model: appController.devices
-                        delegate: RowLayout {
+                        delegate: Rectangle {
                             required property var modelData
                             Layout.fillWidth: true
-                            Rectangle { width: 8; height: 8; radius: 4; color: modelData.connected ? palette.highlight : palette.mid }
-                            Label { text: modelData.name || qsTr("AirPlay device"); font.bold: true }
-                            Label { text: modelData.format || ""; opacity: 0.7 }
-                            ColumnLayout {
-                                spacing: 1
-                                Layout.fillWidth: true
-                                Label { text: modelData.deviceId; opacity: 0.6; Layout.fillWidth: true }
-                                Label {
-                                    text: modelData.userAgent || ""
-                                    visible: text !== ""
-                                    opacity: 0.55
-                                    font.pixelSize: 11
+                            implicitHeight: deviceRow.implicitHeight + 20
+                            radius: 12
+                            color: Qt.rgba(root.palette.window.r, root.palette.window.g,
+                                           root.palette.window.b, 0.72)
+                            border.color: Qt.rgba(root.palette.mid.r, root.palette.mid.g,
+                                                 root.palette.mid.b, 0.22)
+
+                            RowLayout {
+                                id: deviceRow
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 10
+
+                                Rectangle {
+                                    width: 34
+                                    height: 34
+                                    radius: 10
+                                    color: Qt.rgba(root.palette.highlight.r, root.palette.highlight.g,
+                                                   root.palette.highlight.b, modelData.connected ? 0.18 : 0.08)
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: "◉"
+                                        color: modelData.connected ? root.palette.highlight : root.palette.mid
+                                        font.pixelSize: 17
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    spacing: 2
                                     Layout.fillWidth: true
+                                    Label {
+                                        text: modelData.name || qsTr("AirPlay device")
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: [modelData.format || "", modelData.userAgent || ""]
+                                              .filter(value => value !== "").join(" · ")
+                                        visible: text !== ""
+                                        opacity: 0.58
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                    Label {
+                                        text: modelData.deviceId
+                                        opacity: 0.42
+                                        font.pixelSize: 10
+                                        elide: Text.ElideMiddle
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                Rectangle {
+                                    implicitWidth: connectionLabel.implicitWidth + 16
+                                    implicitHeight: 24
+                                    radius: 12
+                                    color: Qt.rgba(root.palette.highlight.r, root.palette.highlight.g,
+                                                   root.palette.highlight.b, modelData.connected ? 0.16 : 0.06)
+                                    Label {
+                                        id: connectionLabel
+                                        anchors.centerIn: parent
+                                        text: modelData.connected ? qsTr("Connected") : qsTr("Offline")
+                                        color: modelData.connected ? root.palette.highlight : root.palette.mid
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                    }
+                                }
+
+                                ToolButton {
+                                    visible: !modelData.connected
+                                    icon.name: "edit-delete"
+                                    text: qsTr("Forget device")
+                                    display: AbstractButton.IconOnly
+                                    onClicked: appController.forgetDevice(modelData.deviceId)
+                                    ToolTip.text: text
+                                    ToolTip.visible: hovered
                                 }
                             }
-                            ToolButton {
-                                visible: !modelData.connected
-                                icon.name: "edit-delete"
-                                text: qsTr("Forget device")
-                                display: AbstractButton.IconOnly
-                                onClicked: appController.forgetDevice(modelData.deviceId)
-                                ToolTip.text: text
-                                ToolTip.visible: hovered
-                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: appController.running ? qsTr("Receiver active") : qsTr("Receiver stopped")
+                            opacity: 0.52
+                            font.pixelSize: 11
+                            Layout.fillWidth: true
+                        }
+                        ToolButton {
+                            icon.name: "utilities-terminal"
+                            text: qsTr("Terminal")
+                            display: AbstractButton.IconOnly
+                            onClicked: terminalDialog.open()
+                            ToolTip.text: text
+                            ToolTip.visible: hovered
+                        }
+                        ToolButton {
+                            icon.name: "settings-configure"
+                            text: qsTr("Settings")
+                            display: AbstractButton.IconOnly
+                            onClicked: settingsDialog.open()
+                            ToolTip.text: text
+                            ToolTip.visible: hovered
                         }
                     }
                 }

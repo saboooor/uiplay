@@ -1,13 +1,17 @@
 #pragma once
 
+#include <QElapsedTimer>
+#include <QColor>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QProcess>
+#include <QTimer>
 #include <QVariantList>
 
 class MetadataReader;
 class MprisService;
 class DiscordRpc;
+class AudioAnalyzer;
 
 class AppController final : public QObject
 {
@@ -19,6 +23,9 @@ class AppController final : public QObject
     Q_PROPERTY(QString album READ album NOTIFY nowPlayingChanged)
     Q_PROPERTY(QString genre READ genre NOTIFY nowPlayingChanged)
     Q_PROPERTY(QString albumArt READ albumArt NOTIFY nowPlayingChanged)
+    Q_PROPERTY(bool playing READ playing NOTIFY nowPlayingChanged)
+    Q_PROPERTY(QVariantList visualizerLevels READ visualizerLevels NOTIFY visualizerLevelsChanged)
+    Q_PROPERTY(QColor accentColor READ accentColor NOTIFY accentColorChanged)
     Q_PROPERTY(int progressSeconds READ progressSeconds NOTIFY progressChanged)
     Q_PROPERTY(int lengthSeconds READ lengthSeconds NOTIFY progressChanged)
     Q_PROPERTY(QString progressText READ progressText NOTIFY progressChanged)
@@ -47,6 +54,8 @@ public:
     QString logs() const { return m_logs; }
     bool running() const;
     bool playing() const { return m_playing; }
+    QVariantList visualizerLevels() const;
+    QColor accentColor() const { return m_accentColor; }
 
     void setReceiverName(const QString &value);
     void setProvider(const QString &value);
@@ -65,6 +74,8 @@ signals:
     void devicesChanged();
     void logsChanged();
     void runningChanged();
+    void visualizerLevelsChanged();
+    void accentColorChanged();
 
 private slots:
     void readStandardOutput();
@@ -110,11 +121,15 @@ private:
     QByteArray m_stdoutBuffer;
     quint64 m_artRevision = 0;
     QString m_remoteAlbumArt;
+    QColor m_accentColor;
     bool m_playing = true;
     QByteArray m_lastArtHash;
     QString m_authToken;
     QNetworkAccessManager m_network;
     QNetworkAccessManager m_dacpNetwork;
+    QElapsedTimer m_lastProgressPacket;
+    QTimer m_progressStatusTimer;
     MprisService *m_mpris = nullptr;
     DiscordRpc *m_discord = nullptr;
+    AudioAnalyzer *m_audioAnalyzer = nullptr;
 };

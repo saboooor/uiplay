@@ -12,6 +12,9 @@ cmake --build qt/build
 ```
 
 The application expects either `shairport-sync` or `uxplay` to be installed.
+The live frequency visualizer uses `pactl` and `parec` from
+`pulseaudio-utils`; these work with both PulseAudio and PipeWire's PulseAudio
+compatibility service. Without them, the visualizer remains idle.
 Shairport metadata, album art, receiver lifecycle, settings, device state, logs,
 and its D-Bus playback controls are handled by the C++ backend. Window borders,
 the title bar, and window controls are supplied by the native window manager.

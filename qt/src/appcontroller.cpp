@@ -2,18 +2,22 @@
 #include "metadatareader.h"
 #include "mprisservice.h"
 #include "discordrpc.h"
+#include "audioanalyzer.h"
 
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFile>
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QImage>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QNetworkProxy>
+#include <QPalette>
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -24,6 +28,7 @@
 
 AppController::AppController(QObject *parent) : QObject(parent)
 {
+    m_accentColor = QGuiApplication::palette().highlight().color();
     m_dacpNetwork.setProxy(QNetworkProxy::NoProxy);
     QDir().mkpath(configPath());
     QFile settings(configPath(QStringLiteral("settings.json")));
@@ -36,8 +41,24 @@ AppController::AppController(QObject *parent) : QObject(parent)
     connect(&m_receiver, &QProcess::readyReadStandardOutput, this, &AppController::readStandardOutput);
     connect(&m_receiver, &QProcess::readyReadStandardError, this, &AppController::readStandardError);
     connect(&m_receiver, &QProcess::finished, this, &AppController::receiverFinished);
+    m_progressStatusTimer.setInterval(5000);
+    m_progressStatusTimer.setSingleShot(true);
+    connect(&m_progressStatusTimer, &QTimer::timeout, this, [this] {
+        const bool packetsContinuing = m_lastProgressPacket.isValid()
+                                       && m_lastProgressPacket.elapsed() < 2500;
+        if (!m_title.isEmpty() && m_playing != packetsContinuing) {
+            m_playing = packetsContinuing;
+            emit nowPlayingChanged();
+        }
+        if (!m_title.isEmpty())
+            m_progressStatusTimer.start();
+    });
     m_mpris = new MprisService(this, this);
     m_discord = new DiscordRpc(this, this);
+    m_audioAnalyzer = new AudioAnalyzer(this);
+    connect(m_audioAnalyzer, &AudioAnalyzer::levelsChanged,
+            this, &AppController::visualizerLevelsChanged);
+    m_audioAnalyzer->start();
 }
 
 AppController::~AppController()
@@ -48,6 +69,11 @@ AppController::~AppController()
 bool AppController::running() const
 {
     return m_receiver.state() != QProcess::NotRunning;
+}
+
+QVariantList AppController::visualizerLevels() const
+{
+    return m_audioAnalyzer ? m_audioAnalyzer->levels() : QVariantList(12, 0.0);
 }
 
 void AppController::setReceiverName(const QString &value)
@@ -262,9 +288,24 @@ void AppController::parseReceiverLine(const QString &line)
     else if ((match = capture("^Album: (.*)$")).hasMatch()) { m_album = match.captured(1); metadataChanged = true; }
     else if ((match = capture("^Genre: (.*)$")).hasMatch()) { m_genre = match.captured(1); metadataChanged = true; }
     else if ((match = capture("audio progress \\(min:sec\\):\\s*(\\d+:\\d+);\\s*remaining:\\s*(\\d+:\\d+);\\s*track length\\s*(\\d+:\\d+)")).hasMatch()) {
-        m_progressSeconds = parseTime(match.captured(1));
+        const int newProgress = parseTime(match.captured(1));
+        if (newProgress != m_progressSeconds)
+            m_lastProgressPacket.restart();
+        m_progressSeconds = newProgress;
         m_lengthSeconds = parseTime(match.captured(3));
         emit progressChanged();
+        if (!m_progressStatusTimer.isActive())
+            m_progressStatusTimer.start();
+    } else if (line == QStringLiteral("Playback started") || line == QStringLiteral("Playback resumed")) {
+        if (!m_playing) {
+            m_playing = true;
+            emit nowPlayingChanged();
+        }
+    } else if (line == QStringLiteral("Playback paused") || line == QStringLiteral("Playback ended")) {
+        if (m_playing) {
+            m_playing = false;
+            emit nowPlayingChanged();
+        }
     } else if ((match = capture("connection request from (.*) with deviceID = (.*)")).hasMatch()) {
         m_currentDeviceId = match.captured(2);
         updateDevice(m_currentDeviceId, match.captured(1));
@@ -319,8 +360,20 @@ void AppController::handleMetadata(const QString &kind, const QString &code, con
     else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("acre")) m_activeRemote = value;
     else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("snam")) { updateDevice(m_currentDeviceId, value); return; }
     else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("snua")) line = QStringLiteral("Client identified as User-Agent: %1").arg(value);
-    else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("pbeg")) line = QStringLiteral("Accepted Shairport client on socket shairport");
-    else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("pend")) line = QStringLiteral("Connection closed for socket shairport");
+    else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("pbeg")) {
+        const QString connection = QStringLiteral("Accepted Shairport client on socket shairport");
+        appendLog(connection);
+        parseReceiverLine(connection);
+        line = QStringLiteral("Playback started");
+    }
+    else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("prsm")) line = QStringLiteral("Playback resumed");
+    else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("paus")) line = QStringLiteral("Playback paused");
+    else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("pend")) {
+        const QString connection = QStringLiteral("Connection closed for socket shairport");
+        appendLog(connection);
+        parseReceiverLine(connection);
+        line = QStringLiteral("Playback ended");
+    }
     else if (code == QStringLiteral("asfm")) line = QStringLiteral("start audio connection, format %1").arg(value);
     else if (kind == QStringLiteral("ssnc") && code == QStringLiteral("prgr")) {
         const QStringList frames = value.split(QLatin1Char('/'));
@@ -379,6 +432,47 @@ void AppController::loadAlbumArt()
     if (!file.open(QIODevice::ReadOnly))
         return;
     const QByteArray data = file.readAll();
+    const QImage artwork = QImage::fromData(data).scaled(
+        64, 64, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    if (!artwork.isNull()) {
+        QHash<quint16, QPair<int, QColor>> colors;
+        for (int y = 0; y < artwork.height(); ++y) {
+            for (int x = 0; x < artwork.width(); ++x) {
+                const QColor color = artwork.pixelColor(x, y);
+                if (color.alpha() < 128)
+                    continue;
+                const int lightness = color.lightness();
+                if (lightness < 22 || lightness > 238)
+                    continue;
+                const quint16 key = quint16((color.red() >> 3) << 10)
+                                    | quint16((color.green() >> 3) << 5)
+                                    | quint16(color.blue() >> 3);
+                auto &bucket = colors[key];
+                ++bucket.first;
+                bucket.second = color;
+            }
+        }
+        double bestScore = -1.0;
+        QColor dominant = m_accentColor;
+        for (auto iterator = colors.cbegin(); iterator != colors.cend(); ++iterator) {
+            const QColor color = iterator.value().second;
+            const double saturation = color.hsvSaturationF();
+            const double score = iterator.value().first * (0.35 + saturation * 0.65);
+            if (score > bestScore) {
+                bestScore = score;
+                dominant = color;
+            }
+        }
+        if (bestScore >= 0.0 && dominant != m_accentColor) {
+            // Keep accents legible against both light and dark Plasma themes.
+            if (dominant.lightness() < 70)
+                dominant = dominant.lighter(150);
+            else if (dominant.lightness() > 205)
+                dominant = dominant.darker(125);
+            m_accentColor = dominant;
+            emit accentColorChanged();
+        }
+    }
     m_albumArt = QUrl::fromLocalFile(path).toString() + QStringLiteral("?v=%1").arg(++m_artRevision);
     emit nowPlayingChanged();
     uploadAlbumArt(data);
@@ -391,6 +485,8 @@ void AppController::resetSession()
     m_progressSeconds = 0; m_lengthSeconds = 0; m_currentDeviceId.clear(); m_socket.clear();
     m_clientIp.clear(); m_dacpPort = 0; m_activeRemote.clear();
     m_playing = true;
+    m_lastProgressPacket.invalidate();
+    m_progressStatusTimer.stop();
     emit nowPlayingChanged();
     emit progressChanged();
 }
@@ -437,6 +533,7 @@ void AppController::sendDbusControl(const QString &method)
         appendLog(QStringLiteral("Playback control failed: %1").arg(reply.errorMessage()));
     else if (method == QStringLiteral("PlayPause")) {
         m_playing = !m_playing;
+        m_progressStatusTimer.start();
         emit nowPlayingChanged();
     }
 }
@@ -517,6 +614,7 @@ bool AppController::sendDacpControl(const QString &command)
             sendDbusControl(method);
         } else if (command == QStringLiteral("playpause")) {
             m_playing = !m_playing;
+            m_progressStatusTimer.start();
             emit nowPlayingChanged();
         }
         reply->deleteLater();

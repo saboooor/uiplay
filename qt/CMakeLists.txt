@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Quick Qml QuickControls2 Network DBus)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Concurrent Gui ShaderTools Widgets Quick Qml QuickControls2 Network DBus)
 qt_standard_project_setup(REQUIRES 6.5)
 
 qt_add_executable(uiplay-qt
@@ -21,6 +21,8 @@ qt_add_executable(uiplay-qt
     src/mprisservice.h
     src/discordrpc.cpp
     src/discordrpc.h
+    src/audioanalyzer.cpp
+    src/audioanalyzer.h
 )
 
 qt_add_qml_module(uiplay-qt
@@ -29,8 +31,16 @@ qt_add_qml_module(uiplay-qt
     QML_FILES qml/Main.qml
 )
 
+qt_add_shaders(uiplay-qt uiplay-background-shaders
+    PREFIX "/shaders"
+    BASE shaders
+    FILES
+        shaders/blended_background.frag
+        shaders/rounded_cover.frag
+)
+
 target_link_libraries(uiplay-qt PRIVATE
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Network Qt6::DBus
+    Qt6::Core Qt6::Concurrent Qt6::Gui Qt6::ShaderTools Qt6::Widgets Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Network Qt6::DBus
 )
 target_compile_definitions(uiplay-qt PRIVATE UIPLAY_VERSION="${UIPLAY_VERSION}")
 
@@ -61,5 +71,5 @@ set(CPACK_DEBIAN_PACKAGE_VERSION "1.0.0~alpha1")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_SECTION "sound")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "shairport-sync, avahi-utils")
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "shairport-sync, avahi-utils, pulseaudio-utils")
 include(CPack)
